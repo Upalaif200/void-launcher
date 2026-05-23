@@ -30,6 +30,10 @@ public class HudManager {
         module.setY(data.y);
         module.setVisible(data.visible);
         module.setColor(data.color);
+        // [VOID-CLIENT ADDITION] restore style for CrosshairModule
+        if (module instanceof CrosshairModule cm) {
+            cm.setStyle(data.style);
+        }
         modules.add(module);
     }
 
@@ -83,6 +87,10 @@ public class HudManager {
             data.y = mod.getY();
             data.visible = mod.isVisible();
             data.color = mod.getColor();
+            // [VOID-CLIENT ADDITION] persist style for CrosshairModule
+            if (mod instanceof CrosshairModule cm) {
+                data.style = cm.getStyle();
+            }
         }
         config.save();
     }

@@ -881,3 +881,77 @@ if (cfBackToTop) {
         cfScrollContainer?.scrollTo({ top: 0, behavior: 'smooth' });
     });
 }
+
+// [VOID-CLIENT ADDITION] Client tab - Module Manager
+const clientModulesContainer = document.getElementById('client-modules-list');
+
+function refreshClientModules() {
+    if (!clientModulesContainer) return;
+    const hudCfg = ipcRenderer.sendSync('get-hud-config');
+    clientModulesContainer.innerHTML = '';
+    if (!hudCfg || !hudCfg.modules) return;
+    for (const [name, data] of Object.entries(hudCfg.modules)) {
+        const card = document.createElement('div');
+        card.className = 'client-module-card';
+        const toggle = document.createElement('input');
+        toggle.type = 'checkbox';
+        toggle.checked = data.visible !== false;
+        toggle.dataset.name = name;
+        const label = document.createElement('span');
+        label.className = 'mod-name';
+        label.textContent = name.replace('Module', '');
+        const swatch = document.createElement('div');
+        swatch.className = 'color-swatch';
+        const c = data.color || 0xFFFFFFFF;
+        swatch.style.background = '#' + (c & 0x00FFFFFF).toString(16).padStart(6, '0');
+        swatch.title = 'Color: 0x' + c.toString(16).toUpperCase();
+        card.appendChild(toggle);
+        card.appendChild(label);
+        card.appendChild(swatch);
+        clientModulesContainer.appendChild(card);
+    }
+}
+
+document.getElementById('client-save-modules')?.addEventListener('click', () => {
+    const cards = clientModulesContainer.querySelectorAll('.client-module-card');
+    const modules = {};
+    cards.forEach(card => {
+        const toggle = card.querySelector('input[type="checkbox"]');
+        const name = toggle.dataset.name;
+        modules[name] = { visible: toggle.checked };
+    });
+    ipcRenderer.send('save-hud-config', { modules });
+});
+
+document.getElementById('client-open-editor')?.addEventListener('click', () => {
+    ipcRenderer.send('launch-module-editor');
+});
+
+// [VOID-CLIENT ADDITION] Client tab - Performance Tweaks
+function setupTweak(id, key, getVal) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('change', () => {
+        const val = getVal ? getVal(el) : el.checked;
+        ipcRenderer.send('write-options', { key, value: val });
+    });
+    el.addEventListener('input', () => {
+        if (id === 'tweak-render-distance') document.getElementById('tweak-rd-value').textContent = el.value;
+        if (id === 'tweak-max-fps') document.getElementById('tweak-fps-value').textContent = el.value;
+    });
+}
+
+setupTweak('tweak-smooth-lighting', 'smoothLighting');
+setupTweak('tweak-vsync', 'enableVsync');
+setupTweak('tweak-fullscreen', 'fullscreen');
+setupTweak('tweak-entity-shadows', 'entityShadows');
+setupTweak('tweak-gui-scale', 'guiScale', el => parseInt(el.value));
+setupTweak('tweak-render-distance', 'renderDistance', el => parseInt(el.value));
+setupTweak('tweak-max-fps', 'maxFps', el => parseInt(el.value));
+
+// Navigate to client view - refresh modules on enter
+const origNavigate = navigate;
+navigate = function(viewId) {
+    origNavigate(viewId);
+    if (viewId === 'view-client') refreshClientModules();
+};

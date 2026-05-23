@@ -1296,3 +1296,74 @@ async function ensureFabricInstalled(mcVersion, loaderVersion, onProgress) {
     }
     return fabricId;
 }
+
+// [VOID-CLIENT ADDITION] IPC handlers for Client tab
+function getActiveGameDir() {
+    const cfg = loadConfig();
+    const profile = cfg.profiles.find(p => p.id === cfg.activeProfileId) || cfg.profiles[0];
+    if (!profile) return null;
+    let gameDir = profile.gameDirectory;
+    if (!gameDir || !fs.existsSync(gameDir)) {
+        gameDir = path.join(userDataPath, 'profiles', profile.id);
+    }
+    return gameDir;
+}
+
+ipcMain.on('get-hud-config', (e) => {
+    const gameDir = getActiveGameDir();
+    if (!gameDir) { e.returnValue = { modules: {} }; return; }
+    const configDir = path.join(gameDir, 'config');
+    const hudCfgPath = path.join(configDir, 'void-client.json');
+    if (fs.existsSync(hudCfgPath)) {
+        try {
+            e.returnValue = JSON.parse(fs.readFileSync(hudCfgPath, 'utf8'));
+        } catch { e.returnValue = { modules: {} }; }
+    } else {
+        e.returnValue = { modules: {} };
+    }
+});
+
+ipcMain.on('save-hud-config', (_, data) => {
+    const gameDir = getActiveGameDir();
+    if (!gameDir) return;
+    const configDir = path.join(gameDir, 'config');
+    fs.mkdirSync(configDir, { recursive: true });
+    const hudCfgPath = path.join(configDir, 'void-client.json');
+    let existing = { modules: {} };
+    if (fs.existsSync(hudCfgPath)) {
+        try { existing = JSON.parse(fs.readFileSync(hudCfgPath, 'utf8')); } catch {}
+    }
+    if (data.modules) {
+        for (const [name, modData] of Object.entries(data.modules)) {
+            if (!existing.modules[name]) existing.modules[name] = {};
+            if (modData.visible !== undefined) existing.modules[name].visible = modData.visible;
+        }
+    }
+    fs.writeFileSync(hudCfgPath, JSON.stringify(existing, null, 2));
+});
+
+ipcMain.on('write-options', (_, { key, value }) => {
+    const gameDir = getActiveGameDir();
+    if (!gameDir) return;
+    const optPath = path.join(gameDir, 'options.txt');
+    let optionsTxt = '';
+    if (fs.existsSync(optPath)) {
+        optionsTxt = fs.readFileSync(optPath, 'utf8');
+    }
+    const valStr = String(value);
+    const re = new RegExp(`^${key}:[^\r\n]*`, 'm');
+    const line = `${key}:${valStr}`;
+    if (re.test(optionsTxt)) {
+        optionsTxt = optionsTxt.replace(re, line);
+    } else {
+        optionsTxt += (optionsTxt ? '\r\n' : '') + line;
+    }
+    fs.writeFileSync(optPath, optionsTxt, 'utf8');
+});
+
+ipcMain.on('launch-module-editor', () => {
+    const gameDir = getActiveGameDir();
+    if (!gameDir) return;
+    // For now, just log — launching in --editor mode is future scope
+    console.log('[VOID-CLIENT] Module editor requested for', gameDir);
+});

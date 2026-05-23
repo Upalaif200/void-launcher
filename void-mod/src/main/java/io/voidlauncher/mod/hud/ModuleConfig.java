@@ -21,6 +21,7 @@ public class ModuleConfig {
         public int x, y;
         public boolean visible = true;
         public int color = 0xFFFFFFFF;
+        public int style; // [VOID-CLIENT ADDITION] for CrosshairModule style
     }
 
     public ModuleData getOrCreate(String name) {
