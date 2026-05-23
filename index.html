@@ -38,6 +38,7 @@
             <button class="nav-btn" data-view="view-mods" title="Mods">🔧</button>
             <div class="nav-spacer"></div>
             <button class="nav-btn" data-view="view-install" title="Instalar versión">📦</button>
+            <button class="nav-btn" data-view="view-client" title="Client">🎛️</button>
         </nav>
 
         <!-- ÁREA PRINCIPAL -->
@@ -401,6 +402,42 @@
         </main>
     </div>
 
+    <!-- ══════════════════════════════════════ -->
+    <!-- VISTA: CLIENT                          -->
+    <!-- ══════════════════════════════════════ -->
+    <section id="view-client" class="view" style="display:none;">
+        <div class="view-header-inline">
+            <h1>🎛️ CLIENT</h1>
+            <p>Gestiona los módulos HUD, ajustes de rendimiento y configuración del cliente.</p>
+        </div>
+
+        <div class="client-layout">
+            <div class="client-section">
+                <h2>Module Manager</h2>
+                <p class="client-desc" style="margin-bottom:12px;">Activa/desactiva módulos y cambia colores desde el launcher.</p>
+                <div id="client-modules-list" class="client-modules-grid"></div>
+                <div class="btn-row" style="margin-top:12px;">
+                    <button id="client-save-modules" class="primary-btn">💾 Guardar configuración</button>
+                    <button id="client-open-editor" class="secondary-btn">🎮 Abrir Editor de Módulos</button>
+                </div>
+            </div>
+
+            <div class="client-section" style="margin-top:24px;">
+                <h2>Performance Tweaks</h2>
+                <p class="client-desc" style="margin-bottom:12px;">Ajusta opciones gráficas de Minecraft directamente.</p>
+                <div id="client-tweaks-grid" class="client-tweaks-grid">
+                    <label class="toggle-label"><span>Smooth Lighting</span><input type="checkbox" id="tweak-smooth-lighting" checked></label>
+                    <label class="toggle-label"><span>VSync</span><input type="checkbox" id="tweak-vsync"></label>
+                    <label class="toggle-label"><span>Fullscreen</span><input type="checkbox" id="tweak-fullscreen"></label>
+                    <label class="toggle-label"><span>Entity Shadows</span><input type="checkbox" id="tweak-entity-shadows" checked></label>
+                    <div class="tweak-row"><span>GUI Scale</span><select id="tweak-gui-scale"><option value="0">Auto</option><option value="1">1</option><option value="2" selected>2</option><option value="3">3</option><option value="4">4</option></select></div>
+                    <div class="tweak-row"><span>Render Distance</span><input type="range" id="tweak-render-distance" min="2" max="32" value="12"><span id="tweak-rd-value">12</span></div>
+                    <div class="tweak-row"><span>Max Framerate</span><input type="range" id="tweak-max-fps" min="10" max="260" value="120" step="10"><span id="tweak-fps-value">120</span></div>
+                </div>
+            </div>
+        </div>
+    </section>
+
     <!-- MODAL DE VERSIÓN DE MOD -->
     <div id="mod-version-modal" class="modal-overlay" style="display:none;">
         <div class="modal-box">
@@ -435,6 +472,7 @@
         </div>
     </div>
 
+    <script src="background.js"></script>
     <script src="skin3d.js"></script>
     <script src="renderer.js"></script>
 </body>
