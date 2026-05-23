@@ -1,0 +1,54 @@
+{
+  "name": "void-launcher",
+  "version": "1.0.0",
+  "description": "Void Launcher - Minecraft Launcher",
+  "author": "Void",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --win"
+  },
+  "build": {
+    "appId": "com.voidlauncher.app",
+    "productName": "Void Launcher",
+    "asar": true,
+    "asarUnpack": [
+      "node_modules/skinview3d/**/*",
+      "node_modules/three/**/*"
+    ],
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "target": "nsis"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Void Launcher"
+    },
+    "files": [
+      "main.js",
+      "renderer.js",
+      "index.html",
+      "style.css",
+      "package.json",
+      "node_modules/**/*",
+      "assets/**/*"
+    ],
+    "extraResources": [
+      "authlib-injector.jar"
+    ]
+  },
+  "dependencies": {
+    "adm-zip": "^0.5.16",
+    "minecraft-launcher-core": "^3.18.2",
+    "skinview3d": "^3.4.1"
+  },
+  "devDependencies": {
+    "electron": "^40.6.1",
+    "electron-builder": "^26.8.1"
+  }
+}

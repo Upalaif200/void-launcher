@@ -1,0 +1,13 @@
+{
+    "required": true,
+    "minVersion": "0.8",
+    "package": "io.voidlauncher.mod",
+    "compatibilityLevel": "JAVA_21",
+    "client": [
+        "KeystrokesMixin",
+        "CrosshairMixin"
+    ],
+    "injectors": {
+        "defaultRequire": 1
+    }
+}

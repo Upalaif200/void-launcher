@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Void Launcher</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&display=swap" rel="stylesheet">
+</head>
+
+<body>
+
+    <!-- BARRA DE TÍTULO -->
+    <div class="title-bar">
+        <div class="title-bar-left">
+            <div class="app-logo">⬛</div>
+            <span class="app-name">VOID LAUNCHER</span>
+        </div>
+        <div class="title-bar-center drag-region"></div>
+        <div class="title-bar-right">
+            <div id="instance-badge" class="instance-badge" style="display:none;">
+                <span id="instance-count">0</span> instancia(s)
+            </div>
+            <div id="update-badge" class="update-badge" style="display:none">🔔 Actualización</div>
+            <button id="minimize-btn" class="control-btn">─</button>
+            <button id="close-btn" class="control-btn close">✕</button>
+        </div>
+    </div>
+
+    <div class="app-shell">
+
+        <!-- SIDEBAR DE NAVEGACIÓN -->
+        <nav class="sidebar">
+            <button class="nav-btn active" data-view="view-main" title="Inicio">🏠</button>
+            <button class="nav-btn" data-view="view-accounts" title="Cuentas">👤</button>
+            <button class="nav-btn" data-view="view-profiles" title="Perfiles">🎮</button>
+            <button class="nav-btn" data-view="view-mods" title="Mods">🔧</button>
+            <div class="nav-spacer"></div>
+            <button class="nav-btn" data-view="view-install" title="Instalar versión">📦</button>
+        </nav>
+
+        <!-- ÁREA PRINCIPAL -->
+        <main class="main-area">
+
+            <!-- ══════════════════════════════════════ -->
+            <!-- VISTA: INICIO                          -->
+            <!-- ══════════════════════════════════════ -->
+            <section id="view-main" class="view active">
+                <div class="view-split">
+                    <div class="form-panel">
+                        <div class="view-header">
+                            <h1 id="main-welcome">BIENVENIDO</h1>
+                            <p id="main-subtitle">Elige un perfil y empieza a jugar.</p>
+                        </div>
+
+                        <!-- Cuenta activa -->
+                        <div class="panel-card account-card">
+                            <div id="main-account-avatar" class="account-avatar">👤</div>
+                            <div class="account-info">
+                                <span class="label-small">CUENTA ACTIVA</span>
+                                <span id="main-account-name" class="account-name-big">Jugador</span>
+                            </div>
+                            <button class="icon-action-btn" data-view="view-accounts"
+                                title="Gestionar cuentas">⚙</button>
+                        </div>
+
+                        <!-- Perfil activo -->
+                        <div class="form-group">
+                            <label>Perfil</label>
+                            <div class="profile-selector-row">
+                                <div id="main-profile-display" class="profile-display">
+                                    <span id="main-profile-icon" class="profile-icon-big">⛏️</span>
+                                    <div class="profile-display-text">
+                                        <span id="main-profile-name">Sin perfil</span>
+                                        <span id="main-profile-version" class="text-muted">─</span>
+                                    </div>
+                                </div>
+                                <button class="icon-action-btn" data-view="view-profiles"
+                                    title="Gestionar perfiles">⚙</button>
+                            </div>
+                        </div>
+
+                        <!-- RAM del perfil activo -->
+                        <div class="form-group">
+                            <label>RAM: <span id="ram-value">4</span> GB</label>
+                            <input type="range" id="ram-slider" min="2" max="16" value="4" step="1">
+                        </div>
+
+                        <!-- Skin -->
+                        <div class="form-group">
+                            <div class="btn-row">
+                                <button id="noveskin-btn" class="secondary-btn">🎨 Buscar Skin</button>
+                                <button id="skin-btn" class="secondary-btn">📁 Cargar Skin</button>
+                            </div>
+                        </div>
+
+                        <!-- Cosméticos y HUD -->
+                        <details class="cf-folders-panel" style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:8px 12px;margin-top:8px;">
+                            <summary style="cursor:pointer;font-weight:600;font-size:12px;color:var(--text2);">🎮 Cosméticos <span style="font-weight:400;">— Dynamic FOV, Damage Tilt, Keystrokes</span></summary>
+                            <div style="margin-top:8px;display:flex;flex-direction:column;gap:6px;">
+                                <label class="toggle-label" style="justify-content:space-between;">
+                                    <span>Keystrokes</span>
+                                    <input type="checkbox" id="toggle-keystrokes">
+                                </label>
+                                <label class="toggle-label" style="justify-content:space-between;">
+                                    <span>Dynamic FOV <span class="text-muted" style="font-weight:400;">(desactivar)</span></span>
+                                    <input type="checkbox" id="toggle-dynamic-fov" checked>
+                                </label>
+                                <label class="toggle-label" style="justify-content:space-between;">
+                                    <span>Damage Tilt <span class="text-muted" style="font-weight:400;">(desactivar)</span></span>
+                                    <input type="checkbox" id="toggle-damage-tilt" checked>
+                                </label>
+                            </div>
+                        </details>
+
+                        <!-- Botón Jugar -->
+                        <button id="play-btn" class="play-btn">▶ JUGAR</button>
+
+                        <!-- Estado de lanzamiento -->
+                        <div id="launch-status-box" class="status-box" style="display:none;">
+                            <div id="launch-status-text" class="status-text">Iniciando...</div>
+                            <div class="progress-track">
+                                <div id="launch-progress-fill" class="progress-fill"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Skin 3D -->
+                    <div class="preview-panel">
+                        <div id="skin-container"></div>
+                        <div class="preview-label">Vista 3D</div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ══════════════════════════════════════ -->
+            <!-- VISTA: CUENTAS                         -->
+            <!-- ══════════════════════════════════════ -->
+            <section id="view-accounts" class="view">
+                <div class="view-header-inline">
+                    <h1>CUENTAS</h1>
+                    <p>Administra tus usuarios. Cada cuenta tiene su propia skin.</p>
+                </div>
+
+                <!-- Añadir cuenta -->
+                <div class="add-row">
+                    <input type="text" id="new-account-input" placeholder="Nombre de usuario..." maxlength="16">
+                    <button id="add-account-btn" class="primary-btn">+ Añadir</button>
+                </div>
+
+                <!-- Lista de cuentas -->
+                <div id="accounts-list" class="cards-grid"></div>
+            </section>
+
+            <!-- ══════════════════════════════════════ -->
+            <!-- VISTA: PERFILES                        -->
+            <!-- ══════════════════════════════════════ -->
+            <section id="view-profiles" class="view">
+                <div class="view-header-inline">
+                    <h1>PERFILES</h1>
+                    <p>Cada perfil tiene su propia versión, mods y directorio.</p>
+                </div>
+
+                <div class="add-row">
+                    <button id="new-profile-btn" class="primary-btn">+ Nuevo Perfil</button>
+                </div>
+
+                <div id="profiles-list" class="cards-grid"></div>
+
+                <!-- Formulario de edición (embebido) -->
+                <div id="profile-edit-panel" class="edit-panel" style="display:none;">
+                    <h2 id="profile-edit-title">Editar Perfil</h2>
+
+                    <div class="edit-grid">
+                        <div class="form-group">
+                            <label>Icono (emoji)</label>
+                            <div class="emoji-row">
+                                <input type="text" id="edit-icon" value="⛏️" maxlength="2" class="emoji-input">
+                                <div class="emoji-presets">
+                                    <span class="emoji-opt" data-emoji="⛏️">⛏️</span>
+                                    <span class="emoji-opt" data-emoji="🌿">🌿</span>
+                                    <span class="emoji-opt" data-emoji="🐸">🐸</span>
+                                    <span class="emoji-opt" data-emoji="🔥">🔥</span>
+                                    <span class="emoji-opt" data-emoji="⚔️">⚔️</span>
+                                    <span class="emoji-opt" data-emoji="🏰">🏰</span>
+                                    <span class="emoji-opt" data-emoji="🚀">🚀</span>
+                                    <span class="emoji-opt" data-emoji="🎭">🎭</span>
+                                    <span class="emoji-opt" data-emoji="🌊">🌊</span>
+                                    <span class="emoji-opt" data-emoji="🧊">🧊</span>
+                                    <span class="emoji-opt" data-emoji="💎">💎</span>
+                                    <span class="emoji-opt" data-emoji="🦊">🦊</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>Nombre</label>
+                            <input type="text" id="edit-name" placeholder="Mi Perfil" maxlength="24">
+                        </div>
+                        <div class="form-group">
+                            <label>Versión</label>
+                            <select id="edit-version"></select>
+                        </div>
+                        <div class="form-group">
+                            <label>RAM (GB)</label>
+                            <input type="number" id="edit-ram" min="2" max="32" value="4">
+                        </div>
+                        <div class="form-group full-width">
+                            <label>Directorio del juego (opcional)</label>
+                            <div class="dir-row">
+                                <input type="text" id="edit-gamedir" placeholder="Automático (AppData/perfiles/ID)..."
+                                    readonly>
+                                <button id="browse-gamedir-btn" class="secondary-btn">📁 Explorar</button>
+                            </div>
+                        </div>
+                        <div class="form-group full-width">
+                            <label>Argumentos JVM personalizados <span class="label-muted">(avanzado)</span></label>
+                            <input type="text" id="edit-jvmargs"
+                                placeholder="-Xss4M -Dfml.ignoreInvalidMinecraftCertificates=true">
+                        </div>
+                    </div>
+
+                    <div class="btn-row" style="margin-top:16px;">
+                        <button id="cancel-edit-btn" class="secondary-btn">Cancelar</button>
+                        <button id="save-profile-btn" class="primary-btn">💾 Guardar Perfil</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ══════════════════════════════════════ -->
+            <!-- VISTA: MODS (CurseForge WebView)        -->
+            <!-- ══════════════════════════════════════ -->
+            <section id="view-mods" class="view">
+                <div class="view-header-inline">
+                    <h1>CURSEFORGE EXPLORER <span id="mods-profile-label" class="header-badge">─</span></h1>
+                    <p>Navega en CurseForge. Las descargas se guardan automáticamente en sus carpetas.</p>
+                </div>
+
+                <div class="cf-layout">
+                    <div class="cf-main" style="gap:8px;">
+                        <!-- Barra de Herramientas -->
+                        <div class="cf-toolbar">
+                            <div class="cf-filters-row">
+                                <div class="filter-group">
+                                    <label>Explorar</label>
+                                    <select id="cf-browse-by">
+                                        <option value="6">Minecraft Mods</option>
+                                        <option value="4471">Modpacks</option>
+                                        <option value="6552">Shaders</option>
+                                        <option value="4472">Bukkit Plugins</option>
+                                        <option value="4559">Addons</option>
+                                        <option value="1">Worlds</option>
+                                        <option value="12">Resource Packs</option>
+                                        <option value="4546">Customization</option>
+                                        <option value="4980">Data Packs</option>
+                                    </select>
+                                </div>
+                                <div class="filter-group">
+                                    <label>Versión</label>
+                                    <select id="cf-game-version">
+                                        <option value="">Todas</option>
+                                    </select>
+                                </div>
+                                <div class="filter-group">
+                                    <label>Ordenar por</label>
+                                    <select id="cf-sort-by">
+                                        <option value="1">Relevancia</option>
+                                        <option value="2">Popularidad</option>
+                                        <option value="3">Última actualización</option>
+                                        <option value="4">Nombre</option>
+                                        <option value="5">Total de descargas</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="cf-loaders-row">
+                                <label><input type="checkbox" class="cf-loader-check" value="1"> Forge</label>
+                                <label><input type="checkbox" class="cf-loader-check" value="4"> Fabric</label>
+                                <label><input type="checkbox" class="cf-loader-check" value="6"> NeoForge</label>
+                                <label><input type="checkbox" class="cf-loader-check" value="5"> Quilt</label>
+                            </div>
+                        </div>
+
+                        <!-- WebView -->
+                        <webview id="cf-webview"
+                            src="https://www.curseforge.com/minecraft/mc-mods?page=1&pageSize=20&sortBy=relevancy"
+                            style="flex:1;width:100%;min-height:350px;border:1px solid var(--border);border-radius:8px;background:#fff;"
+                            allowpopups>
+                        </webview>
+
+                        <!-- Carpetas de destino -->
+                        <details class="cf-folders-panel" style="background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:12px 16px;">
+                            <summary style="cursor:pointer;font-weight:600;font-size:12px;color:var(--text2);">📁 Carpetas de descarga <span style="font-weight:400;">— haz clic para configurar</span></summary>
+                            <div style="margin-top:10px;display:flex;flex-direction:column;gap:8px;">
+                                <div class="cf-folder-row">
+                                    <span style="min-width:120px;font-size:12px;font-weight:500;">Minecraft Mods:</span>
+                                    <input type="text" id="cf-folder-mods" readonly class="folder-path-input">
+                                    <button class="secondary-btn" style="padding:4px 10px;font-size:14px;" onclick="browseFolder('mods')">📂</button>
+                                </div>
+                                <div class="cf-folder-row">
+                                    <span style="min-width:120px;font-size:12px;font-weight:500;">Resource Packs:</span>
+                                    <input type="text" id="cf-folder-resourcepacks" readonly class="folder-path-input">
+                                    <button class="secondary-btn" style="padding:4px 10px;font-size:14px;" onclick="browseFolder('resourcepacks')">📂</button>
+                                </div>
+                                <div class="cf-folder-row">
+                                    <span style="min-width:120px;font-size:12px;font-weight:500;">Worlds:</span>
+                                    <input type="text" id="cf-folder-saves" readonly class="folder-path-input">
+                                    <button class="secondary-btn" style="padding:4px 10px;font-size:14px;" onclick="browseFolder('saves')">📂</button>
+                                </div>
+                            </div>
+                        </details>
+                    </div>
+                </div>
+
+                <button id="cf-back-to-top" class="back-to-top" title="Volver arriba">↑</button>
+            </section>
+
+            <!-- ══════════════════════════════════════ -->
+            <!-- VISTA: INSTALAR VERSIÓN                -->
+            <!-- ══════════════════════════════════════ -->
+            <section id="view-install" class="view">
+                <div class="view-header-inline">
+                    <h1>INSTALAR VERSIÓN</h1>
+                    <p>Descarga versiones Vanilla, Fabric y Forge desde los servidores oficiales.</p>
+                </div>
+
+                <!-- Tipo de instalador -->
+                <div class="tabs">
+                    <button class="tab-btn active" data-tab="tab-install-fabric">Vanilla / Fabric</button>
+                    <button class="tab-btn" data-tab="tab-install-forge">⚒️ Forge</button>
+                </div>
+
+                <!-- PANEL: Vanilla / Fabric -->
+                <div id="tab-install-fabric" class="tab-panel active">
+                    <div class="install-form">
+                        <div class="form-group">
+                            <label>Mostrar</label>
+                            <select id="install-type">
+                                <option value="release">Solo versiones estables</option>
+                                <option value="all">Todas (incluye snapshots)</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Versión de Minecraft</label>
+                            <select id="vanilla-select">
+                                <option value="">⏳ Cargando...</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label class="toggle-label">
+                                <input type="checkbox" id="fabric-toggle">
+                                Instalar Fabric Loader encima
+                            </label>
+                        </div>
+                        <div class="form-group" id="fabric-group" style="display:none;">
+                            <label>Versión de Fabric Loader</label>
+                            <select id="fabric-select">
+                                <option value="">⏳ Cargando Fabric...</option>
+                            </select>
+                        </div>
+                        <div id="install-status-box" class="status-box" style="display:none;">
+                            <div id="install-status-text" class="status-text">Preparando...</div>
+                            <div class="progress-track">
+                                <div id="install-progress-fill" class="progress-fill"></div>
+                            </div>
+                        </div>
+                        <button id="do-install-btn" class="primary-btn" style="margin-top:16px;">⬇ INSTALAR</button>
+                    </div>
+                </div>
+
+                <!-- PANEL: Forge -->
+                <div id="tab-install-forge" class="tab-panel">
+                    <div class="install-form">
+                        <div class="form-group">
+                            <label>Versión de Minecraft (base)</label>
+                            <select id="forge-mc-select">
+                                <option value="">Selecciona primero la versión de MC</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Versión de Forge</label>
+                            <select id="forge-version-select">
+                                <option value="">─ Elige MC primero ─</option>
+                            </select>
+                        </div>
+                        <div class="forge-note">
+                            ⚠️ El installer de Forge descarga archivos adicionales durante la instalación. Puede tardar
+                            varios minutos.
+                        </div>
+                        <div id="forge-status-box" class="status-box" style="display:none;">
+                            <div id="forge-status-text" class="status-text">Preparando...</div>
+                            <div class="progress-track">
+                                <div id="forge-progress-fill" class="progress-fill"></div>
+                            </div>
+                        </div>
+                        <button id="do-forge-install-btn" class="primary-btn forge-btn" style="margin-top:16px;">⚒️
+                            INSTALAR FORGE</button>
+                    </div>
+                </div>
+            </section>
+
+        </main>
+    </div>
+
+    <!-- MODAL DE VERSIÓN DE MOD -->
+    <div id="mod-version-modal" class="modal-overlay" style="display:none;">
+        <div class="modal-box">
+            <h3 id="modal-mod-name">Seleccionar versión</h3>
+            <p class="modal-subtitle">Elige la versión del mod a instalar:</p>
+            <div id="modal-versions-list" class="modal-list"></div>
+            <button id="modal-close-btn" class="secondary-btn" style="margin-top:12px;">Cancelar</button>
+        </div>
+    </div>
+
+    <!-- MODAL DE DEPENDENCIAS -->
+    <div id="deps-modal" class="modal-overlay" style="display:none;">
+        <div class="modal-box">
+            <h3>🔗 Dependencias requeridas</h3>
+            <p class="modal-subtitle">Este mod requiere los siguientes mods para funcionar:</p>
+            <div id="deps-list" class="deps-list"></div>
+            <p class="deps-note">Se instalarán automáticamente junto con el mod principal.</p>
+            <div class="btn-row" style="margin-top:14px;">
+                <button id="deps-cancel-btn" class="secondary-btn">Cancelar</button>
+                <button id="deps-confirm-btn" class="primary-btn">✔ Instalar todo</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL DE VERSIÓN DE MODPACK -->
+    <div id="modpack-version-modal" class="modal-overlay" style="display:none;">
+        <div class="modal-box">
+            <h3 id="modal-modpack-name">📦 Seleccionar versión del modpack</h3>
+            <p class="modal-subtitle">Elige la versión a instalar en el perfil activo:</p>
+            <div id="modal-modpack-versions-list" class="modal-list"></div>
+            <button id="modpack-modal-close-btn" class="secondary-btn" style="margin-top:12px;">Cancelar</button>
+        </div>
+    </div>
+
+    <script src="skin3d.js"></script>
+    <script src="renderer.js"></script>
+</body>
+
+</html>

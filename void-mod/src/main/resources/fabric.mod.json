@@ -1,0 +1,25 @@
+{
+    "schemaVersion": 1,
+    "id": "void-client",
+    "version": "${version}",
+    "name": "Void Client",
+    "description": "HUD modules for Void Launcher",
+    "authors": ["Void Launcher"],
+    "contact": {},
+    "license": "MIT",
+    "icon": "assets/keystrokes/icon.png",
+    "environment": "client",
+    "entrypoints": {
+        "client": ["io.voidlauncher.mod.KeystrokesMod"]
+    },
+    "mixins": ["void-keystrokes.mixins.json"],
+    "depends": {
+        "fabricloader": ">=${loader_version}",
+        "minecraft": "${minecraft_version}",
+        "fabric-key-binding-api-v1": "*",
+        "fabric-lifecycle-events-v1": "*"
+    },
+    "recommends": {
+        "fabric-api": "*"
+    }
+}
