@@ -1,16 +1,17 @@
 {
   "name": "void-launcher",
   "version": "1.0.0",
-  "description": "Void Launcher - Minecraft Launcher",
-  "author": "Void",
+  "description": "Launcher creado con el propósito de, aparte de Jugar al Minecraft, jugar con la seguridad de que no hay ningún tipo de Malware.",
+  "author": "UP",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "build": "electron-builder --win"
+    "build": "electron-builder --win",
+    "postinstall": "node scripts/generate-icon.js"
   },
   "build": {
     "appId": "com.voidlauncher.app",
-    "productName": "Void Launcher",
+    "productName": "Void-Launcher",
     "asar": true,
     "asarUnpack": [
       "node_modules/skinview3d/**/*",
@@ -20,14 +21,19 @@
       "output": "dist"
     },
     "win": {
-      "target": "nsis"
+      "icon": "build/icon.ico",
+      "target": "nsis",
+      "legalCopyright": "Copyright © UP"
     },
     "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
+      "oneClick": true,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": false,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "Void Launcher"
+      "shortcutName": "Void-Launcher",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico"
     },
     "files": [
       "main.js",
@@ -36,19 +42,33 @@
       "style.css",
       "package.json",
       "node_modules/**/*",
-      "assets/**/*"
+      "build/icon.png",
+      "build/icon.ico"
     ],
     "extraResources": [
-      "authlib-injector.jar"
+      "authlib-injector.jar",
+      {
+        "from": "void-mod/build/libs/",
+        "to": "mods/",
+        "filter": [
+          "keystrokes-1.0.0.jar"
+        ]
+      }
+    ],
+    "publish": [
+      "github"
     ]
   },
   "dependencies": {
     "adm-zip": "^0.5.16",
+    "electron-updater": "^6.6.2",
     "minecraft-launcher-core": "^3.18.2",
     "skinview3d": "^3.4.1"
   },
   "devDependencies": {
     "electron": "^40.6.1",
-    "electron-builder": "^26.8.1"
+    "electron-builder": "^26.8.1",
+    "png-to-ico": "^3.0.1",
+    "sharp": "^0.34.5"
   }
 }

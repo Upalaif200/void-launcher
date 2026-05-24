@@ -9,8 +9,8 @@ const THREE = require('three');
 
     const scene = new THREE.Scene();
 
-    // Gradient sky colors
-    const colors = ['#030526', '#230740', '#6B3073', '#6568A6', '#F2D5E0'];
+    // Gradient sky colors (dark/deep void)
+    const colors = ['#010005', '#050015', '#0a0030', '#150060', '#200080'];
     const canvas = document.createElement('canvas');
     canvas.width = 1;
     canvas.height = 512;
@@ -44,9 +44,9 @@ const THREE = require('three');
     starGeo.setAttribute('position', new THREE.BufferAttribute(starPos, 3));
     const starMat = new THREE.PointsMaterial({
         color: 0xFFFFFF,
-        size: 0.15,
+        size: 0.1,
         transparent: true,
-        opacity: 0.8,
+        opacity: 0.45,
         blending: THREE.AdditiveBlending
     });
     const stars = new THREE.Points(starGeo, starMat);
@@ -77,14 +77,14 @@ const THREE = require('three');
         return sprite;
     }
 
-    const nebulaColors = [0x6B3073, 0x6568A6, 0x8B5CF6, 0xF2D5E0];
+    const nebulaColors = [0x3a1580, 0x2a1060, 0x4a2090, 0x1a0050];
     for (let i = 0; i < 8; i++) {
         const color = nebulaColors[i % nebulaColors.length];
         const size = 8 + Math.random() * 12;
         const x = (Math.random() - 0.5) * 30;
         const y = (Math.random() - 0.5) * 20;
         const z = -5 - Math.random() * 15;
-        const opacity = 0.08 + Math.random() * 0.12;
+        const opacity = 0.04 + Math.random() * 0.06;
         scene.add(createNebulaSprite(color, size, opacity, x, y, z));
     }
 
@@ -155,7 +155,7 @@ const THREE = require('three');
     const edgeMat = new THREE.LineBasicMaterial({
         color: 0x8B5CF6,
         transparent: true,
-        opacity: 0.35
+        opacity: 0.18
     });
     const tesseractLines = new THREE.LineSegments(edgeGeo, edgeMat);
     scene.add(tesseractLines);
@@ -166,9 +166,9 @@ const THREE = require('three');
     vertGeo.setAttribute('position', new THREE.BufferAttribute(vertPositions, 3));
     const vertMat = new THREE.PointsMaterial({
         color: 0xA855F7,
-        size: 0.12,
+        size: 0.25,
         transparent: true,
-        opacity: 0.9,
+        opacity: 0.8,
         blending: THREE.AdditiveBlending
     });
     const tesseractVerts = new THREE.Points(vertGeo, vertMat);
@@ -179,17 +179,17 @@ const THREE = require('three');
     const glowPositions = new Float32Array(glowCount * 3);
     const glowColors = new Float32Array(glowCount * 3);
     for (let i = 0; i < glowCount; i++) {
-        glowColors[i * 3] = 0.66;
-        glowColors[i * 3 + 1] = 0.33;
-        glowColors[i * 3 + 2] = 0.97;
+        glowColors[i * 3] = 0.40;
+        glowColors[i * 3 + 1] = 0.15;
+        glowColors[i * 3 + 2] = 0.70;
     }
     const glowGeo = new THREE.BufferGeometry();
     glowGeo.setAttribute('position', new THREE.BufferAttribute(glowPositions, 3));
     glowGeo.setAttribute('color', new THREE.BufferAttribute(glowColors, 3));
     const glowMat = new THREE.PointsMaterial({
-        size: 0.06,
+        size: 0.1,
         transparent: true,
-        opacity: 0.6,
+        opacity: 0.5,
         blending: THREE.AdditiveBlending,
         vertexColors: true
     });

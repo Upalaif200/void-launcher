@@ -2,7 +2,6 @@ package io.voidlauncher.mod.hud;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.client.multiplayer.PlayerInfo;
 
 public class PingModule extends HudModule {
     public PingModule() {
@@ -19,7 +18,8 @@ public class PingModule extends HudModule {
             gg.drawString(mc.font, "SP", x, y, 0xFF808080);
             return;
         }
-        PlayerInfo info = conn.getPlayerInfo(player.getGameProfile().getId());
+        String name = player.getName().getString();
+        var info = conn.getPlayerInfo(name);
         if (info == null) {
             gg.drawString(mc.font, "SP", x, y, 0xFF808080);
             return;

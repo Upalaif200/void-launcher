@@ -14,8 +14,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class HudSettingsScreen extends Screen {
-    private static final int PAD = 8, ROW_H = 22, COL1 = 20, COL2 = 90, COL3 = 50, COL4 = 50, COL5 = 50, COL6 = 60;
-    private int scrollY;
+    private static final int PAD = 8, ROW_H = 22;
     private final List<ModuleRow> rows = new ArrayList<>();
 
     private record ModuleRow(Button toggleBtn, Button colorBtn, EditBox xBox, EditBox yBox, Button resetBtn, Button styleBtn, HudModule module) {}
@@ -28,7 +27,6 @@ public class HudSettingsScreen extends Screen {
     protected void init() {
         super.init();
         rows.clear();
-        scrollY = 0;
 
         int baseY = PAD;
         for (var mod : HudManager.getInstance().getModules()) {
@@ -41,24 +39,22 @@ public class HudSettingsScreen extends Screen {
                     mod.setVisible(!mod.isVisible());
                     btn.setMessage(Component.literal(mod.isVisible() ? "[x]" : "[ ]"));
                 })
-                .bounds(COL1, y, 18, 18)
+                .bounds(20, y, 18, 18)
                 .build());
-
-            String name = mod.getClass().getSimpleName().replace("Module", "");
 
             Button colorBtn = addRenderableWidget(Button.builder(
-                Component.literal("🎨"),
+                Component.literal("Color"),
                 btn -> minecraft.setScreen(new ColorPickerScreen(mod, this)))
-                .bounds(COL2 + 40, y, 22, 18)
+                .bounds(130, y, 46, 18)
                 .build());
 
-            EditBox xBox = new EditBox(font, COL3 + 80, y + 1, 36, 16, Component.literal("X"));
+            EditBox xBox = new EditBox(font, 210, y + 1, 36, 16, Component.literal("X"));
             xBox.setValue(String.valueOf(mod.getX()));
             xBox.setMaxLength(5);
             xBox.setFilter(s -> s.matches("-?\\d*"));
             addRenderableWidget(xBox);
 
-            EditBox yBox = new EditBox(font, COL4 + 118, y + 1, 36, 16, Component.literal("Y"));
+            EditBox yBox = new EditBox(font, 260, y + 1, 36, 16, Component.literal("Y"));
             yBox.setValue(String.valueOf(mod.getY()));
             yBox.setMaxLength(5);
             yBox.setFilter(s -> s.matches("-?\\d*"));
@@ -72,10 +68,9 @@ public class HudSettingsScreen extends Screen {
                     xBox.setValue(String.valueOf(mod.getX()));
                     yBox.setValue(String.valueOf(mod.getY()));
                 })
-                .bounds(COL5 + 158, y, 46, 18)
+                .bounds(310, y, 46, 18)
                 .build());
 
-            // [VOID-CLIENT ADDITION] Style cycle button for CrosshairModule
             Button styleBtn = null;
             if (mod instanceof CrosshairModule cm) {
                 styleBtn = addRenderableWidget(Button.builder(
@@ -85,7 +80,7 @@ public class HudSettingsScreen extends Screen {
                         cm.setStyle(next);
                         btn.setMessage(Component.literal("Style:" + next));
                     })
-                    .bounds(COL5 + 208, y, 52, 18)
+                    .bounds(364, y, 52, 18)
                     .build());
             }
 
@@ -126,35 +121,25 @@ public class HudSettingsScreen extends Screen {
     }
 
     @Override
-    public boolean mouseScrolled(double mx, double my, double scrollX, double scrollY) {
-        this.scrollY = (int) Math.clamp(this.scrollY - scrollY * 10, -(rows.size() * ROW_H - height + 60), 0);
-        return true;
-    }
-
-    @Override
     public void render(GuiGraphics gg, int mx, int my, float delta) {
         renderBackground(gg, mx, my, delta);
-        gg.pose().pushPose();
-        gg.pose().translate(0, scrollY, 0);
 
-        gg.drawString(font, "On", COL1, PAD - 12 + scrollY, 0x808080);
-        gg.drawString(font, "Module", COL2, PAD - 12 + scrollY, 0x808080);
-        gg.drawString(font, "Color", COL2 + 42, PAD - 12 + scrollY, 0x808080);
-        gg.drawString(font, "X", COL3 + 80, PAD - 12 + scrollY, 0x808080);
-        gg.drawString(font, "Y", COL4 + 118, PAD - 12 + scrollY, 0x808080);
+        gg.drawString(font, "On", 20, PAD - 12, 0x808080);
+        gg.drawString(font, "Module", 48, PAD - 12, 0x808080);
+        gg.drawString(font, "Color", 130, PAD - 12, 0x808080);
+        gg.drawString(font, "X", 210, PAD - 12, 0x808080);
+        gg.drawString(font, "Y", 260, PAD - 12, 0x808080);
 
         super.render(gg, mx, my, delta);
 
         for (int i = 0; i < rows.size(); i++) {
             var r = rows.get(i);
-            int y = PAD + i * ROW_H + scrollY;
+            int rowY = PAD + i * ROW_H;
             String name = r.module.getClass().getSimpleName().replace("Module", "");
-            gg.drawString(font, name, COL2, y + 4, 0xFFFFFF);
+            gg.drawString(font, name, 48, rowY + 4, 0xFFFFFF);
             int swatchColor = r.module.getColor();
-            gg.fill(COL2 + 62, y + 2, COL2 + 80, y + 18, 0xFF000000 | (swatchColor & 0x00FFFFFF));
+            gg.fill(48 + font.width(name) + 4, rowY + 2, 48 + font.width(name) + 20, rowY + 18, 0xFF000000 | (swatchColor & 0x00FFFFFF));
         }
-
-        gg.pose().popPose();
 
         gg.drawString(font, "Use mouse wheel to scroll | RSHIFT to open", PAD, height - font.lineHeight - PAD, 0x808080);
     }

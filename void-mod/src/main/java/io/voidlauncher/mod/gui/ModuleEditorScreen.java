@@ -8,72 +8,91 @@ import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 
+import java.util.HashMap;
+import java.util.Map;
+
 public class ModuleEditorScreen extends Screen {
     private HudModule selectedModule;
     private boolean dragging;
     private int dragOffX, dragOffY;
+    private final Map<HudModule, int[]> originalPositions = new HashMap<>();
 
     public ModuleEditorScreen() {
         super(Component.literal("Module Editor"));
+        saveOriginalPositions();
+    }
+
+    private void saveOriginalPositions() {
+        originalPositions.clear();
+        for (var mod : HudManager.getInstance().getModules()) {
+            originalPositions.put(mod, new int[]{mod.getX(), mod.getY()});
+        }
     }
 
     @Override
     protected void init() {
         super.init();
+
         addRenderableWidget(Button.builder(
-            Component.literal("Done"),
+            Component.literal("Save & Close"),
             btn -> {
                 HudManager.getInstance().saveConfig();
                 onClose();
             })
-            .bounds(width / 2 - 30, height - 30, 60, 20)
+            .bounds(width / 2 - 85, height - 28, 78, 20)
+            .build());
+
+        addRenderableWidget(Button.builder(
+            Component.literal("Reset"),
+            btn -> {
+                for (var mod : HudManager.getInstance().getModules()) {
+                    int[] pos = originalPositions.get(mod);
+                    if (pos != null) {
+                        mod.setX(pos[0]);
+                        mod.setY(pos[1]);
+                    }
+                }
+            })
+            .bounds(width / 2 + 7, height - 28, 60, 20)
             .build());
     }
 
     @Override
-    public boolean mouseClicked(double mx, double my, int button) {
-        if (button == 0) {
+    public void tick() {
+        super.tick();
+        var mc = Minecraft.getInstance();
+        if (mc.mouseHandler == null) return;
+        double mx = mc.mouseHandler.xpos() * (double) width / mc.getWindow().getWidth();
+        double my = mc.mouseHandler.ypos() * (double) height / mc.getWindow().getHeight();
+
+        boolean leftDown = mc.mouseHandler.isLeftPressed();
+        if (leftDown && !dragging) {
             for (var mod : HudManager.getInstance().getModules()) {
                 if (mod.isVisible() && mod.isMouseOver((int) mx, (int) my)) {
                     selectedModule = mod;
                     dragging = true;
                     dragOffX = (int) mx - mod.getX();
                     dragOffY = (int) my - mod.getY();
-                    return true;
+                    break;
                 }
             }
-            selectedModule = null;
         }
-        return super.mouseClicked(mx, my, button);
-    }
-
-    @Override
-    public boolean mouseDragged(double mx, double my, int button, double dx, double dy) {
+        if (!leftDown) {
+            dragging = false;
+        }
         if (dragging && selectedModule != null) {
             selectedModule.setX((int) mx - dragOffX);
             selectedModule.setY((int) my - dragOffY);
-            return true;
         }
-        return super.mouseDragged(mx, my, button, dx, dy);
-    }
-
-    @Override
-    public boolean mouseReleased(double mx, double my, int button) {
-        if (button == 0) dragging = false;
-        return super.mouseReleased(mx, my, button);
     }
 
     @Override
     public void render(GuiGraphics gg, int mx, int my, float delta) {
-        // Dark semi-transparent background
         gg.fill(0, 0, width, height, 0x88000000);
 
-        // Render all visible modules in their real positions
-        var mc = Minecraft.getInstance();
         for (var mod : HudManager.getInstance().getModules()) {
             if (mod.isVisible()) {
                 mod.render(gg);
-                // Draw selection highlight
                 if (mod == selectedModule) {
                     int bx = mod.getX() - 2;
                     int by = mod.getY() - 2;
@@ -87,8 +106,7 @@ public class ModuleEditorScreen extends Screen {
             }
         }
 
-        // Hint text
-        gg.drawString(font, "Click a module to select, drag to reposition, ESC or Done to save", width / 2 - 180, height - 50, 0x808080);
+        gg.drawString(font, "Click a module to select, drag to move. Save & Close or press ESC.", width / 2 - 170, height - 50, 0x808080);
 
         super.render(gg, mx, my, delta);
     }

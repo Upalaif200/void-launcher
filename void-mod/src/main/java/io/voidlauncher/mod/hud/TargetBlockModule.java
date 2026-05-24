@@ -3,6 +3,8 @@ package io.voidlauncher.mod.hud;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.HitResult;
 
 public class TargetBlockModule extends HudModule {
     public TargetBlockModule() {
@@ -13,9 +15,9 @@ public class TargetBlockModule extends HudModule {
     public void render(GuiGraphics gg) {
         var mc = Minecraft.getInstance();
         var hit = mc.hitResult;
-        if (hit == null || hit.getType() == net.minecraft.world.phys.HitResult.Type.MISS) return;
-        var pos = hit.getBlockPos();
-        if (pos == null) return;
+        if (hit == null || hit.getType() == HitResult.Type.MISS) return;
+        if (!(hit instanceof BlockHitResult bhr)) return;
+        var pos = bhr.getBlockPos();
         var level = mc.level;
         if (level == null) return;
         var state = level.getBlockState(pos);

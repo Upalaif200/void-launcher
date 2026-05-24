@@ -1,7 +1,7 @@
 {
     "required": true,
     "minVersion": "0.8",
-    "package": "io.voidlauncher.mod",
+    "package": "io.voidlauncher.mod.mixin",
     "compatibilityLevel": "JAVA_21",
     "client": [
         "KeystrokesMixin",

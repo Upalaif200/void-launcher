@@ -7,6 +7,7 @@ const https = require('https');
 const crypto = require('crypto');
 const { spawn } = require('child_process');
 const AdmZip = require('adm-zip');
+const { autoUpdater } = require('electron-updater');
 
 // ─────────────────────────────────────────────
 // RUTAS PERSISTENTES
@@ -106,7 +107,26 @@ function createWindow() {
     win.loadFile('index.html');
 }
 
-app.whenReady().then(createWindow);
+app.whenReady().then(() => {
+    createWindow();
+
+    // ── Auto-updater ──
+    autoUpdater.logger = console;
+    autoUpdater.checkForUpdatesAndNotify().catch(() => {});
+    autoUpdater.on('update-available', (info) => {
+        console.log('[UPDATER] Update available:', info.version);
+    });
+    autoUpdater.on('update-not-available', () => {
+        console.log('[UPDATER] No update available');
+    });
+    autoUpdater.on('download-progress', (prog) => {
+        console.log(`[UPDATER] Download: ${Math.round(prog.percent)}%`);
+    });
+    autoUpdater.on('update-downloaded', () => {
+        console.log('[UPDATER] Update downloaded, installing...');
+        autoUpdater.quitAndInstall(false, true);
+    });
+});
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 
 // ─────────────────────────────────────────────
@@ -615,7 +635,9 @@ ipcMain.on('launch-game', async (event, { profileId }) => {
         if (cosmetics.keystrokes && version.includes('fabric')) {
             const modsDir = path.join(gameDir, 'mods');
             fs.mkdirSync(modsDir, { recursive: true });
-            const keystrokesJar = path.join(__dirname, 'void-mod', 'build', 'libs', 'keystrokes-1.0.0.jar');
+            const keystrokesJar = app.isPackaged
+                ? path.join(process.resourcesPath, 'mods', 'keystrokes-1.0.0.jar')
+                : path.join(__dirname, 'void-mod', 'build', 'libs', 'keystrokes-1.0.0.jar');
             if (fs.existsSync(keystrokesJar)) {
                 const dest = path.join(modsDir, 'keystrokes-1.0.0.jar');
                 fs.copyFileSync(keystrokesJar, dest);
