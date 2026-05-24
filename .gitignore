@@ -21,6 +21,7 @@ libraries/
 versions/
 natives/
 dist/
+build-dist/
 downloads/
 .fabric/
 void-mod/.gradle/
