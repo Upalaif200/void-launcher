@@ -26,6 +26,7 @@ async function main() {
         installerIcon: 'build/icon.ico',
         uninstallerIcon: 'build/icon.ico'
       },
+      asar: false,
       files: [
         'main.js', 'background.js', 'skin3d.js', 'renderer.js',
         'index.html', 'style.css', 'package.json',
@@ -36,6 +37,7 @@ async function main() {
         'authlib-injector.jar',
         { from: 'void-mod/build/libs/', to: 'mods/', filter: ['keystrokes-1.0.0.jar'] }
       ],
+      afterPack: 'scripts/after-pack.js',
       publish: ['github']
     },
     projectDir: path.join(__dirname, '..')
