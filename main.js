@@ -113,6 +113,7 @@ app.whenReady().then(() => {
     // ── Auto-updater ──
     autoUpdater.logger = console;
     autoUpdater.autoDownload = false;
+    autoUpdater.forceDevUpdateConfig = true;
     autoUpdater.on('update-available', async (info) => {
         const { response } = await dialog.showMessageBox({
             type: 'info', title: 'Actualización disponible',
@@ -150,6 +151,7 @@ app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(
 ipcMain.on('close-app', () => app.quit());
 ipcMain.on('minimize-app', () => BrowserWindow.getFocusedWindow()?.minimize());
 ipcMain.on('get-userdata-path', (e) => { e.returnValue = userDataPath; });
+ipcMain.on('get-app-version', (e) => { e.returnValue = app.getVersion(); });
 
 // ─────────────────────────────────────────────
 // IPC — CONFIG GENERAL

@@ -1,8 +1,9 @@
 {
   "name": "void-launcher",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Launcher creado con el propósito de, aparte de Jugar al Minecraft, jugar con la seguridad de que no hay ningún tipo de Malware.",
   "author": "UP",
+  "repository": "Upalaif200/void-launcher",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
@@ -50,13 +51,15 @@
       {
         "from": "void-mod/build/libs/",
         "to": "mods/",
-        "filter": [
-          "keystrokes-1.0.0.jar"
-        ]
+        "filter": ["keystrokes-1.0.0.jar"]
       }
     ],
     "publish": [
-      "github"
+      {
+        "provider": "github",
+        "owner": "Upalaif200",
+        "repo": "void-launcher"
+      }
     ]
   },
   "dependencies": {

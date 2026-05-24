@@ -13,6 +13,9 @@ const os = require('os');
 // ─────────────────────────────────────────────
 let cfg = ipcRenderer.sendSync('get-config');
 let editingProfileId = null;   // null = crear nuevo
+const appVersion = ipcRenderer.sendSync('get-app-version');
+document.title = `Void Launcher v${appVersion}`;
+document.querySelector('.app-name').textContent = `VOID LAUNCHER v${appVersion}`;
 
 // ─────────────────────────────────────────────
 // SKIN VIEWER 3D
