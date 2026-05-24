@@ -1,4 +1,4 @@
-package io.voidlauncher.mod;
+package io.voidlauncher.mod.mixin;
 
 import io.voidlauncher.mod.hud.HudManager;
 import net.minecraft.client.DeltaTracker;

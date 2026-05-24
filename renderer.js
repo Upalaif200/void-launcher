@@ -6,6 +6,7 @@ const { ipcRenderer, shell } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const skinview3d = require('skinview3d');
+const os = require('os');
 
 // ─────────────────────────────────────────────
 // ESTADO GLOBAL
@@ -123,6 +124,17 @@ ramSlider.addEventListener('input', (e) => {
         cfg = ipcRenderer.sendSync('get-config');
     }
 });
+
+// Dynamic RAM max (total system RAM - 1GB for OS)
+const totalRamGB = Math.floor(os.totalmem() / (1024 * 1024 * 1024));
+const maxRam = Math.max(2, totalRamGB - 1);
+if (ramSlider) {
+    ramSlider.max = maxRam;
+    if (parseInt(ramSlider.value) > maxRam) {
+        ramSlider.value = String(maxRam);
+        document.getElementById('ram-value').textContent = String(maxRam);
+    }
+}
 
 // Play
 const playBtn = document.getElementById('play-btn');
@@ -949,9 +961,12 @@ setupTweak('tweak-gui-scale', 'guiScale', el => parseInt(el.value));
 setupTweak('tweak-render-distance', 'renderDistance', el => parseInt(el.value));
 setupTweak('tweak-max-fps', 'maxFps', el => parseInt(el.value));
 
-// Navigate to client view - refresh modules on enter
+// Navigate to client view - refresh modules + cosmetics on enter
 const origNavigate = navigate;
 navigate = function(viewId) {
     origNavigate(viewId);
-    if (viewId === 'view-client') refreshClientModules();
+    if (viewId === 'view-client') {
+        refreshClientModules();
+        loadCosmeticsState();
+    }
 };
