@@ -10,7 +10,7 @@
     "icon": "assets/keystrokes/icon.png",
     "environment": "client",
     "entrypoints": {
-        "client": ["io.voidlauncher.mod.KeystrokesMod"]
+        "client": ["io.voidlauncher.VoidClientEntrypoint"]
     },
     "mixins": ["void-keystrokes.mixins.json"],
     "depends": {
