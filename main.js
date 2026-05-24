@@ -293,9 +293,15 @@ function startSkinServer() {
             const account = cfg.accounts.find(a => a.id === cfg.activeAccountId) || cfg.accounts[0];
             const username = account?.username || 'Jugador';
 
+            const account_ = cfg.accounts.find(a => a.id === cfg.activeAccountId) || cfg.accounts[0];
+            const skinFile_ = account_?.skinPath ? path.resolve(account_.skinPath) : null;
+            const textures = {};
+            if (skinFile_ && fs.existsSync(skinFile_)) {
+                textures.SKIN = { url: `http://127.0.0.1:${SKIN_SERVER_PORT}/skin/${encodeURIComponent(username)}.png` };
+            }
             const texturePayload = {
                 timestamp: Date.now(), profileId: uuid, profileName: username,
-                textures: { SKIN: { url: `http://127.0.0.1:${SKIN_SERVER_PORT}/skin/${encodeURIComponent(username)}.png` } }
+                textures: textures
             };
             const profile = {
                 id: uuid, name: username,
