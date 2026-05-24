@@ -12,11 +12,7 @@
   "build": {
     "appId": "com.voidlauncher.app",
     "productName": "Void-Launcher",
-    "asar": true,
-    "asarUnpack": [
-      "node_modules/skinview3d/**/*",
-      "node_modules/three/**/*"
-    ],
+    "asar": false,
     "directories": {
       "output": "dist"
     },
@@ -48,6 +44,7 @@
       "build/icon.png",
       "build/icon.ico"
     ],
+    "afterPack": "scripts/after-pack.js",
     "extraResources": [
       "authlib-injector.jar",
       {

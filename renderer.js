@@ -64,6 +64,17 @@ document.querySelectorAll('.icon-action-btn[data-view]').forEach(btn => {
     btn.addEventListener('click', () => navigate(btn.dataset.view));
 });
 
+// Tab switching (Instalar Versión)
+document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+        btn.classList.add('active');
+        const panel = document.getElementById(btn.dataset.tab);
+        if (panel) panel.classList.add('active');
+    });
+});
+
 // ─────────────────────────────────────────────
 // VENTANA
 // ─────────────────────────────────────────────
@@ -146,7 +157,7 @@ playBtn.addEventListener('click', () => {
     cfg = ipcRenderer.sendSync('get-config');
     const prof = activeProfile();
     if (!prof?.versionId) {
-        alert('El perfil activo no tiene una versión configurada.\nVe a Perfiles → edita el perfil y elige una versión.');
+        alert('El perfil activo no tiene una versión configurada.\nVe a Versiones → edita la versión y elige una.');
         return;
     }
     playBtn.disabled = true;
@@ -293,7 +304,7 @@ function openEditProfile(profileId) {
 
     if (profileId) {
         const prof = cfg.profiles.find(p => p.id === profileId);
-        title.textContent = 'Editar Perfil';
+        title.textContent = 'Editar Versión';
         document.getElementById('edit-icon').value = prof.icon || '⛏️';
         document.getElementById('edit-name').value = prof.name || '';
         document.getElementById('edit-ram').value = prof.ram || '4';
@@ -301,7 +312,7 @@ function openEditProfile(profileId) {
         document.getElementById('edit-jvmargs').value = prof.jvmArgs || '';
         vsel.value = prof.versionId || '';
     } else {
-        title.textContent = 'Nuevo Perfil';
+        title.textContent = 'Nueva Versión';
         document.getElementById('edit-icon').value = '⛏️';
         document.getElementById('edit-name').value = '';
         document.getElementById('edit-ram').value = '4';
@@ -324,7 +335,7 @@ document.getElementById('cancel-edit-btn').addEventListener('click', closeEditPa
 document.getElementById('save-profile-btn').addEventListener('click', () => {
     const data = {
         icon: document.getElementById('edit-icon').value || '⛏️',
-        name: document.getElementById('edit-name').value.trim() || 'Perfil',
+        name: document.getElementById('edit-name').value.trim() || 'Versión',
         versionId: document.getElementById('edit-version').value,
         ram: document.getElementById('edit-ram').value,
         gameDirectory: document.getElementById('edit-gamedir').value,
@@ -362,8 +373,8 @@ window.selectProfile = (id) => {
 };
 window.openEditProfile = openEditProfile;
 window.removeProfile = (id) => {
-    if (cfg.profiles.length <= 1) { alert('Debes tener al menos un perfil.'); return; }
-    if (!confirm('¿Eliminar este perfil?')) return;
+    if (cfg.profiles.length <= 1) { alert('Debes tener al menos una versión.'); return; }
+    if (!confirm('¿Eliminar esta versión?')) return;
     ipcRenderer.sendSync('remove-profile', { id });
     cfg = ipcRenderer.sendSync('get-config');
     renderProfilesList();
