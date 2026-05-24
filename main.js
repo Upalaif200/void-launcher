@@ -200,7 +200,7 @@ ipcMain.on('add-profile', (e, profileData) => {
     const id = generateId();
     const profile = {
         id,
-        name: profileData.name || 'Nuevo Perfil',
+        name: profileData.name || 'Nueva Versión',
         icon: profileData.icon || '⛏️',
         versionId: profileData.versionId || '',
         gameDirectory: profileData.gameDirectory || '',
@@ -562,7 +562,7 @@ ipcMain.on('launch-game', async (event, { profileId }) => {
         const account = cfg.accounts.find(a => a.id === cfg.activeAccountId) || cfg.accounts[0];
 
         if (!profile || !profile.versionId) {
-            event.reply('launch-status', { type: 'error', data: 'Perfil sin versión configurada' });
+            event.reply('launch-status', { type: 'error', data: 'Versión sin Minecraft configurado' });
             return;
         }
 

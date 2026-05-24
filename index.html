@@ -52,7 +52,7 @@
         <nav class="sidebar">
             <button class="nav-btn active" data-view="view-main" title="Inicio">🏠</button>
             <button class="nav-btn" data-view="view-accounts" title="Cuentas">👤</button>
-            <button class="nav-btn" data-view="view-profiles" title="Perfiles">🎮</button>
+            <button class="nav-btn" data-view="view-profiles" title="Versiones">🎮</button>
             <button class="nav-btn" data-view="view-mods" title="Mods">🔧</button>
             <div class="nav-spacer"></div>
             <button class="nav-btn" data-view="view-install" title="Instalar versión">📦</button>
@@ -84,20 +84,16 @@
                                 title="Gestionar cuentas">⚙</button>
                         </div>
 
-                        <!-- Perfil activo -->
-                        <div class="form-group">
-                            <label>Perfil</label>
-                            <div class="profile-selector-row">
-                                <div id="main-profile-display" class="profile-display">
-                                    <span id="main-profile-icon" class="profile-icon-big">⛏️</span>
-                                    <div class="profile-display-text">
-                                        <span id="main-profile-name">Sin perfil</span>
-                                        <span id="main-profile-version" class="text-muted">─</span>
-                                    </div>
-                                </div>
-                                <button class="icon-action-btn" data-view="view-profiles"
-                                    title="Gestionar perfiles">⚙</button>
+                        <!-- Versión activa -->
+                        <div class="profile-card">
+                            <span id="main-profile-icon" class="profile-icon-big">⛏️</span>
+                            <div class="profile-info">
+                                <span class="label-small">VERSIÓN ACTIVA</span>
+                                <span id="main-profile-name" class="profile-name-big">Sin perfil</span>
+                                <span id="main-profile-version" class="text-muted">─</span>
                             </div>
+                            <button class="icon-action-btn" data-view="view-profiles"
+                                title="Gestionar versiones">⚙</button>
                         </div>
 
                         <!-- RAM del perfil activo -->
@@ -160,19 +156,19 @@
             <!-- ══════════════════════════════════════ -->
             <section id="view-profiles" class="view">
                 <div class="view-header-inline">
-                    <h1>PERFILES</h1>
-                    <p>Cada perfil tiene su propia versión, mods y directorio.</p>
+                    <h1>VERSIONES</h1>
+                    <p>Cada versión tiene su propia configuración, mods y directorio.</p>
                 </div>
 
                 <div class="add-row">
-                    <button id="new-profile-btn" class="primary-btn">+ Nuevo Perfil</button>
+                    <button id="new-profile-btn" class="primary-btn">+ Nueva Versión</button>
                 </div>
 
                 <div id="profiles-list" class="cards-grid"></div>
 
                 <!-- Formulario de edición (embebido) -->
                 <div id="profile-edit-panel" class="edit-panel" style="display:none;">
-                    <h2 id="profile-edit-title">Editar Perfil</h2>
+                    <h2 id="profile-edit-title">Editar Versión</h2>
 
                     <div class="edit-grid">
                         <div class="form-group">
@@ -197,7 +193,7 @@
                         </div>
                         <div class="form-group">
                             <label>Nombre</label>
-                            <input type="text" id="edit-name" placeholder="Mi Perfil" maxlength="24">
+                            <input type="text" id="edit-name" placeholder="Mi Versión" maxlength="24">
                         </div>
                         <div class="form-group">
                             <label>Versión</label>
@@ -224,7 +220,7 @@
 
                     <div class="btn-row" style="margin-top:16px;">
                         <button id="cancel-edit-btn" class="secondary-btn">Cancelar</button>
-                        <button id="save-profile-btn" class="primary-btn">💾 Guardar Perfil</button>
+                        <button id="save-profile-btn" class="primary-btn">💾 Guardar Versión</button>
                     </div>
                 </div>
             </section>
