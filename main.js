@@ -16,20 +16,23 @@ const userDataPath = app.getPath('userData');
 const configPath = path.join(userDataPath, 'launcher_config.json');
 const gameRoot = userDataPath;
 
-if (!fs.existsSync(userDataPath)) fs.mkdirSync(userDataPath, { recursive: true });
+fs.mkdirSync(userDataPath, { recursive: true });
 
 // ─────────────────────────────────────────────
 // CONFIG — CARGA / GUARDADO / MIGRACIÓN
 // ─────────────────────────────────────────────
+let configCache = null;
+
 function generateId() {
     return crypto.randomBytes(8).toString('hex');
 }
 
 function loadConfig() {
+    if (configCache) return configCache;
     if (!fs.existsSync(configPath)) {
         const id = generateId();
         const profileId = generateId();
-        const defaultCfg = {
+        configCache = {
             accounts: [{ id, username: 'Jugador', skinPath: '' }],
             activeAccountId: id,
             profiles: [{
@@ -46,19 +49,17 @@ function loadConfig() {
             appVersion: '1.1.0',
             cosmetics: { keystrokes: false, dynamicFov: true, damageTilt: true }
         };
-        fs.writeFileSync(configPath, JSON.stringify(defaultCfg, null, 2));
-        return defaultCfg;
+        fs.writeFileSync(configPath, JSON.stringify(configCache, null, 2));
+        return configCache;
     }
 
     let cfg = JSON.parse(fs.readFileSync(configPath, 'utf8'));
 
-    // Migrar config antigua (sin cosmetics)
     if (!cfg.cosmetics) {
         cfg.cosmetics = { keystrokes: false, dynamicFov: true, damageTilt: true };
         fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2));
     }
 
-    // Migrar config antigua (con username/ram en raíz)
     if (!cfg.accounts) {
         const id = generateId();
         const profileId = generateId();
@@ -81,11 +82,17 @@ function loadConfig() {
         fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2));
     }
 
+    configCache = cfg;
     return cfg;
 }
 
 function saveConfig(cfg) {
+    configCache = cfg;
     fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2));
+}
+
+function invalidateConfig() {
+    configCache = null;
 }
 
 // ─────────────────────────────────────────────
@@ -159,6 +166,12 @@ ipcMain.on('get-app-version', (e) => { e.returnValue = app.getVersion(); });
 // ─────────────────────────────────────────────
 ipcMain.on('get-config', (e) => { e.returnValue = loadConfig(); });
 ipcMain.on('save-config', (_, cfg) => saveConfig(cfg));
+ipcMain.on('set-config-key', (e, { key, value }) => {
+    const cfg = loadConfig();
+    cfg[key] = value;
+    saveConfig(cfg);
+    e.returnValue = true;
+});
 ipcMain.on('save-cosmetics', (_, cosmetics) => {
     const cfg = loadConfig();
     cfg.cosmetics = cosmetics;
@@ -484,7 +497,9 @@ function getJavaVersion(javaPath) {
     } catch (e) { return 0; }
 }
 
+let _javaCache = null;
 function findBestJava() {
+    if (_javaCache) return _javaCache;
     const checked = new Set();
     const candidates = [];
 
@@ -508,7 +523,8 @@ function findBestJava() {
         const v = getJavaVersion(p);
         if (v > bestVersion) { bestVersion = v; bestPath = p; }
     }
-    return { path: bestPath, version: bestVersion };
+    _javaCache = { path: bestPath, version: bestVersion };
+    return _javaCache;
 }
 
 const JAVA_CACHE_DIR = path.join(userDataPath, 'java');

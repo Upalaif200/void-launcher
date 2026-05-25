@@ -4,6 +4,11 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 
 public class PingModule extends HudModule {
+    private String cachedText = "SP";
+    private int cachedColor = 0xFF808080;
+    private int lastLatency = -1;
+    private boolean wasConnected;
+
     public PingModule() {
         super(2, 70);
     }
@@ -15,17 +20,23 @@ public class PingModule extends HudModule {
         if (player == null) return;
         var conn = mc.getConnection();
         if (conn == null) {
-            gg.drawString(mc.font, "SP", x, y, 0xFF808080);
+            if (wasConnected) { cachedText = "SP"; cachedColor = 0xFF808080; wasConnected = false; }
+            gg.drawString(mc.font, cachedText, x, y, cachedColor);
             return;
         }
-        String name = player.getName().getString();
-        var info = conn.getPlayerInfo(name);
+        if (!wasConnected) wasConnected = true;
+        var info = conn.getPlayerInfo(player.getName().getString());
         if (info == null) {
             gg.drawString(mc.font, "SP", x, y, 0xFF808080);
             return;
         }
-        String text = info.getLatency() + "ms";
-        gg.drawString(mc.font, text, x, y, color);
+        int lat = info.getLatency();
+        if (lat != lastLatency) {
+            lastLatency = lat;
+            cachedText = lat + "ms";
+            cachedColor = color;
+        }
+        gg.drawString(mc.font, cachedText, x, y, cachedColor);
     }
 
     @Override public int getWidth() { return Minecraft.getInstance().font.width("999ms"); }

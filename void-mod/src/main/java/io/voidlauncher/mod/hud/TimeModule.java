@@ -4,8 +4,15 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 
 public class TimeModule extends HudModule {
+    private String cachedText = "00:00";
+    private int lastHours = -1, lastMinutes = -1;
+
     public TimeModule() {
         super(2, 98);
+    }
+
+    private static String pad2(int n) {
+        return n < 10 ? "0" + n : Integer.toString(n);
     }
 
     @Override
@@ -15,8 +22,11 @@ public class TimeModule extends HudModule {
         long time = level.getDayTime() % 24000;
         int hours = (int) ((time / 1000 + 6) % 24);
         int minutes = (int) ((time % 1000) * 60 / 1000);
-        String text = String.format("%02d:%02d", hours, minutes);
-        gg.drawString(Minecraft.getInstance().font, text, x, y, color);
+        if (hours != lastHours || minutes != lastMinutes) {
+            lastHours = hours; lastMinutes = minutes;
+            cachedText = pad2(hours) + ':' + pad2(minutes);
+        }
+        gg.drawString(Minecraft.getInstance().font, cachedText, x, y, color);
     }
 
     @Override public int getWidth() { return Minecraft.getInstance().font.width("23:59"); }

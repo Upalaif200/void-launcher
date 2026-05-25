@@ -15,6 +15,7 @@ public class HudManager {
     private HudModule dragTarget;
     private int dragOffX, dragOffY;
     private boolean wasLeftDown;
+    private CrosshairModule crosshairModule;
 
     private HudManager() {
         this.config = ModuleConfig.load();
@@ -39,9 +40,12 @@ public class HudManager {
         module.setForm(data.form);
         if (module instanceof CrosshairModule cm) {
             cm.setStyle(data.style);
+            crosshairModule = cm;
         }
         modules.add(module);
     }
+
+    public CrosshairModule getCrosshairModule() { return crosshairModule; }
 
     public void renderAll(GuiGraphics gg) {
         var mc = Minecraft.getInstance();
@@ -51,51 +55,57 @@ public class HudManager {
 
         var win = mc.getWindow();
         long handle = win.handle();
-        boolean alt = GLFW.glfwGetKey(handle, GLFW.GLFW_KEY_LEFT_ALT) == GLFW.GLFW_PRESS;
         boolean left = GLFW.glfwGetMouseButton(handle, GLFW.GLFW_MOUSE_BUTTON_LEFT) == GLFW.GLFW_PRESS;
+        boolean alt = GLFW.glfwGetKey(handle, GLFW.GLFW_KEY_LEFT_ALT) == GLFW.GLFW_PRESS;
 
-        if (alt && !left && wasLeftDown) {
-            if (dragTarget != null) {
-                saveConfig();
-                dragTarget = null;
+        if (alt) {
+            if (!left && wasLeftDown) {
+                if (dragTarget != null) {
+                    saveConfig();
+                    dragTarget = null;
+                }
             }
-        }
-
-        if (alt && left && !wasLeftDown) {
-            double mx = mc.mouseHandler.xpos() * win.getGuiScaledWidth() / win.getScreenWidth();
-            double my = mc.mouseHandler.ypos() * win.getGuiScaledHeight() / win.getScreenHeight();
-            for (var mod : modules) {
-                if (mod.isVisible() && mod.isMouseOver((int) mx, (int) my)) {
-                    dragTarget = mod;
-                    dragOffX = (int) mx - mod.getX();
-                    dragOffY = (int) my - mod.getY();
-                    break;
+            if (left) {
+                if (!wasLeftDown) {
+                    double mx = mc.mouseHandler.xpos() * win.getGuiScaledWidth() / win.getScreenWidth();
+                    double my = mc.mouseHandler.ypos() * win.getGuiScaledHeight() / win.getScreenHeight();
+                    for (var mod : modules) {
+                        if (mod.isVisible() && mod.isMouseOver((int) mx, (int) my)) {
+                            dragTarget = mod;
+                            dragOffX = (int) mx - mod.getX();
+                            dragOffY = (int) my - mod.getY();
+                            break;
+                        }
+                    }
+                } else if (dragTarget != null) {
+                    double mx = mc.mouseHandler.xpos() * win.getGuiScaledWidth() / win.getScreenWidth();
+                    double my = mc.mouseHandler.ypos() * win.getGuiScaledHeight() / win.getScreenHeight();
+                    dragTarget.setX((int) mx - dragOffX);
+                    dragTarget.setY((int) my - dragOffY);
                 }
             }
         }
 
-        if (alt && left && dragTarget != null) {
-            double mx = mc.mouseHandler.xpos() * win.getGuiScaledWidth() / win.getScreenWidth();
-            double my = mc.mouseHandler.ypos() * win.getGuiScaledHeight() / win.getScreenHeight();
-            dragTarget.setX((int) mx - dragOffX);
-            dragTarget.setY((int) my - dragOffY);
-        }
-
         wasLeftDown = left;
 
-        for (var mod : modules) {
+        var anim = animator;
+        var modList = modules;
+        int size = modList.size();
+        for (int i = 0; i < size; i++) {
+            var mod = modList.get(i);
             if (!mod.isVisible()) continue;
 
-            int origX = mod.getX();
-            int origY = mod.getY();
-
-            mod.setX(origX + animator.getXOffset(mod.getAnimation()));
-            mod.setY(origY + animator.getYOffset(mod.getAnimation()));
-
-            mod.render(gg);
-
-            mod.setX(origX);
-            mod.setY(origY);
+            int ox = anim.getXOffset(mod.getAnimation());
+            int oy = anim.getYOffset(mod.getAnimation());
+            if (ox != 0 || oy != 0) {
+                mod.setX(mod.getX() + ox);
+                mod.setY(mod.getY() + oy);
+                mod.render(gg);
+                mod.setX(mod.getX() - ox);
+                mod.setY(mod.getY() - oy);
+            } else {
+                mod.render(gg);
+            }
         }
     }
 

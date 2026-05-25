@@ -8,22 +8,23 @@ import net.minecraft.world.item.ItemStack;
 public class ArmorStatusModule extends HudModule {
     private static final int SLOT_SIZE = 18, PAD = 2;
     private static final int COMPACT_SIZE = 12, COMPACT_PAD = 1;
+    private static final EquipmentSlot[] SLOTS = {EquipmentSlot.FEET, EquipmentSlot.LEGS, EquipmentSlot.CHEST, EquipmentSlot.HEAD};
 
     public ArmorStatusModule() {
         super(PAD, PAD);
     }
+
+    private final ItemStack[] armor = new ItemStack[4];
 
     @Override
     public void render(GuiGraphics gg) {
         var player = Minecraft.getInstance().player;
         if (player == null) return;
 
-        var armor = new ItemStack[]{
-            player.getItemBySlot(EquipmentSlot.FEET),
-            player.getItemBySlot(EquipmentSlot.LEGS),
-            player.getItemBySlot(EquipmentSlot.CHEST),
-            player.getItemBySlot(EquipmentSlot.HEAD)
-        };
+        armor[0] = player.getItemBySlot(EquipmentSlot.FEET);
+        armor[1] = player.getItemBySlot(EquipmentSlot.LEGS);
+        armor[2] = player.getItemBySlot(EquipmentSlot.CHEST);
+        armor[3] = player.getItemBySlot(EquipmentSlot.HEAD);
 
         switch (form) {
             case 0 -> renderVertical(gg, armor);
@@ -38,8 +39,7 @@ public class ArmorStatusModule extends HudModule {
         int pad = Math.max(1, Math.round(PAD * s));
 
         for (int i = 0; i < armor.length; i++) {
-            int sx = x;
-            int sy = y + i * (size + pad);
+            int sx = x, sy = y + i * (size + pad);
             gg.renderItem(armor[i], sx + 1, sy + 1);
             if (armor[i].isDamageableItem()) {
                 renderDurabilityBar(gg, armor[i], sx + 1, sy + size - 2, size - 2);
@@ -53,8 +53,7 @@ public class ArmorStatusModule extends HudModule {
         int pad = Math.max(1, Math.round(PAD * s));
 
         for (int i = 0; i < armor.length; i++) {
-            int sx = x + i * (size + pad);
-            int sy = y;
+            int sx = x + i * (size + pad), sy = y;
             gg.renderItem(armor[i], sx + 1, sy + 1);
             if (armor[i].isDamageableItem()) {
                 renderDurabilityBar(gg, armor[i], sx + 1, sy + size - 2, size - 2);
@@ -68,9 +67,7 @@ public class ArmorStatusModule extends HudModule {
         int pad = Math.max(1, Math.round(COMPACT_PAD * s));
 
         for (int i = 0; i < armor.length; i++) {
-            int sx = x;
-            int sy = y + i * (size + pad);
-            gg.renderItem(armor[i], sx, sy);
+            gg.renderItem(armor[i], x, y + i * (size + pad));
         }
     }
 

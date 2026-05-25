@@ -6,11 +6,13 @@ import net.minecraft.world.scores.DisplaySlot;
 import net.minecraft.world.scores.Objective;
 import net.minecraft.world.scores.PlayerScoreEntry;
 
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
-import java.util.stream.Collectors;
 
 public class ScoreboardModule extends HudModule {
+    private static final Comparator<PlayerScoreEntry> SCORE_CMP = Comparator.comparingInt(PlayerScoreEntry::value).reversed();
+
     public ScoreboardModule() {
         super(2, 112);
     }
@@ -28,18 +30,17 @@ public class ScoreboardModule extends HudModule {
         if (obj == null) return;
 
         var font = mc.font;
-        String title = obj.getDisplayName().getString();
-        gg.drawString(font, title, x, y, 0xFFFFFF);
+        gg.drawString(font, obj.getDisplayName().getString(), x, y, 0xFFFFFF);
 
-        var allEntries = new java.util.ArrayList<>(sb.listPlayerScores(obj));
-        allEntries.sort(Comparator.comparingInt(PlayerScoreEntry::value).reversed());
-        if (allEntries.size() > 5) allEntries = new java.util.ArrayList<>(allEntries.subList(0, 5));
-
-        int i = 1;
-        for (PlayerScoreEntry e : allEntries) {
-            String line = e.owner() + ": " + e.value();
-            gg.drawString(font, line, x, y + i * font.lineHeight, 0xAAAAAA);
-            i++;
+        var all = new ArrayList<>(sb.listPlayerScores(obj));
+        all.sort(SCORE_CMP);
+        int limit = Math.min(all.size(), 5);
+        var sb = new StringBuilder(32);
+        for (int i = 0; i < limit; i++) {
+            var e = all.get(i);
+            sb.setLength(0);
+            sb.append(e.owner()).append(": ").append(e.value());
+            gg.drawString(font, sb.toString(), x, y + (i + 1) * font.lineHeight, 0xAAAAAA);
         }
     }
 

@@ -16,6 +16,7 @@ import java.util.Map;
 
 public class VoidCustomizationScreen extends Screen {
     private static final int PANEL_W = 210;
+    private static final HudManager HUD = HudManager.getInstance();
 
     private HudModule selectedModule;
     private boolean dragging;
@@ -23,6 +24,7 @@ public class VoidCustomizationScreen extends Screen {
     private final Map<HudModule, int[]> originalPositions = new HashMap<>();
     private final List<GuiEventListener> panelWidgets = new ArrayList<>();
     private int panelX, panelY;
+    private boolean saved;
 
     public VoidCustomizationScreen() {
         super(Component.literal("Editor de Void Client"));
@@ -31,7 +33,7 @@ public class VoidCustomizationScreen extends Screen {
 
     private void saveOriginalPositions() {
         originalPositions.clear();
-        for (var mod : HudManager.getInstance().getModules()) {
+        for (var mod : HUD.getModules()) {
             originalPositions.put(mod, new int[]{mod.getX(), mod.getY()});
         }
     }
@@ -41,16 +43,17 @@ public class VoidCustomizationScreen extends Screen {
         super.init();
         panelX = width - PANEL_W - 8;
         panelY = 10;
+        saved = false;
 
         addRenderableWidget(Button.builder(
             Component.literal("Guardar y Salir"),
-            btn -> { HudManager.getInstance().saveConfig(); onClose(); })
+            btn -> onClose())
             .bounds(8, height - 28, 90, 20).build());
 
         addRenderableWidget(Button.builder(
             Component.literal("Restablecer Todo"),
             btn -> {
-                for (var mod : HudManager.getInstance().getModules()) {
+                for (var mod : HUD.getModules()) {
                     int[] pos = originalPositions.get(mod);
                     if (pos != null) { mod.setX(pos[0]); mod.setY(pos[1]); }
                 }
@@ -71,7 +74,6 @@ public class VoidCustomizationScreen extends Screen {
 
         int y = panelY + 24;
 
-        // X position
         EditBox xBox = new EditBox(font, panelX + 24, y, 50, 16, Component.literal("X"));
         xBox.setValue(String.valueOf(selectedModule.getX()));
         xBox.setMaxLength(5);
@@ -90,7 +92,6 @@ public class VoidCustomizationScreen extends Screen {
 
         y += 22;
 
-        // Scale
         EditBox scaleBox = new EditBox(font, panelX + 60, y, 45, 16, Component.literal("Scale"));
         scaleBox.setValue(String.format("%.2f", selectedModule.getScale()));
         scaleBox.setMaxLength(5);
@@ -112,7 +113,6 @@ public class VoidCustomizationScreen extends Screen {
 
         y += 22;
 
-        // Alpha
         EditBox alphaBox = new EditBox(font, panelX + 72, y, 45, 16, Component.literal("Alpha"));
         alphaBox.setValue(String.format("%.2f", selectedModule.getAlpha()));
         alphaBox.setMaxLength(5);
@@ -134,7 +134,6 @@ public class VoidCustomizationScreen extends Screen {
 
         y += 22;
 
-        // Color button
         Button colorBtn = Button.builder(
             Component.literal("Color"),
             btn -> minecraft.setScreen(new VoidColorPickerScreen(selectedModule, this)))
@@ -144,7 +143,6 @@ public class VoidCustomizationScreen extends Screen {
 
         y += 22;
 
-        // Style/Form cycling
         if (selectedModule instanceof CrosshairModule cm) {
             Button styleBtn = Button.builder(
                 Component.literal("Estilo: " + styleName(cm.getStyle())),
@@ -172,7 +170,6 @@ public class VoidCustomizationScreen extends Screen {
 
         y += 22;
 
-        // Animation cycling
         Button animBtn = Button.builder(
             Component.literal("Animación: " + animName(selectedModule.getAnimation())),
             btn -> {
@@ -186,7 +183,6 @@ public class VoidCustomizationScreen extends Screen {
 
         y += 24;
 
-        // Reset module
         Button resetBtn = Button.builder(
             Component.literal("Restablecer módulo"),
             btn -> {
@@ -214,7 +210,7 @@ public class VoidCustomizationScreen extends Screen {
         boolean leftDown = mc.mouseHandler.isLeftPressed();
 
         if (leftDown && !dragging) {
-            for (var mod : HudManager.getInstance().getModules()) {
+            for (var mod : HUD.getModules()) {
                 if (mod.isVisible() && mod.isMouseOver((int) mx, (int) my)) {
                     selectModule(mod);
                     dragging = true;
@@ -235,8 +231,7 @@ public class VoidCustomizationScreen extends Screen {
     public void render(GuiGraphics gg, int mx, int my, float delta) {
         gg.fill(0, 0, width, height, 0x88000000);
 
-        // Render all visible modules
-        for (var mod : HudManager.getInstance().getModules()) {
+        for (var mod : HUD.getModules()) {
             if (!mod.isVisible()) continue;
             mod.render(gg);
             if (mod == selectedModule) {
@@ -249,7 +244,6 @@ public class VoidCustomizationScreen extends Screen {
             }
         }
 
-        // Properties panel
         if (selectedModule != null) {
             int py = panelY;
             int ph = height - 20 - py;
@@ -257,22 +251,19 @@ public class VoidCustomizationScreen extends Screen {
             gg.fill(panelX, py, panelX + 1, py + ph, 0xFF666688);
             gg.fill(panelX, py + ph - 1, panelX + PANEL_W, py + ph, 0xFF666688);
 
-            // Module title
             gg.drawString(font, selectedModule.getDisplayName(), panelX + 6, py + 6, 0xFFCC88);
 
-            // Labels for fields
-            int y = py + 24;
-            gg.drawString(font, "X:", panelX + 5, y + 3, 0xAAAAAA);
-            gg.drawString(font, "Y:", panelX + 80, y + 3, 0xAAAAAA);
-            y += 22;
-            gg.drawString(font, "Escala:", panelX + 5, y + 3, 0xAAAAAA);
-            y += 22;
-            gg.drawString(font, "Opacidad:", panelX + 5, y + 3, 0xAAAAAA);
-            y += 22;
+            int ly = py + 24;
+            gg.drawString(font, "X:", panelX + 5, ly + 3, 0xAAAAAA);
+            gg.drawString(font, "Y:", panelX + 80, ly + 3, 0xAAAAAA);
+            ly += 22;
+            gg.drawString(font, "Escala:", panelX + 5, ly + 3, 0xAAAAAA);
+            ly += 22;
+            gg.drawString(font, "Opacidad:", panelX + 5, ly + 3, 0xAAAAAA);
+            ly += 22;
 
-            // Color swatch
             int swatchX = panelX + PANEL_W - 28;
-            int swatchY = y - 18;
+            int swatchY = ly - 18;
             gg.fill(swatchX, swatchY, swatchX + 20, swatchY + 18, 0xFF000000);
             gg.fill(swatchX + 1, swatchY + 1, swatchX + 19, swatchY + 17,
                 0xFF000000 | (selectedModule.getColor() & 0x00FFFFFF));
@@ -286,11 +277,12 @@ public class VoidCustomizationScreen extends Screen {
 
     @Override
     public void onClose() {
-        HudManager.getInstance().saveConfig();
+        if (!saved) {
+            HUD.saveConfig();
+            saved = true;
+        }
         super.onClose();
     }
-
-    // ---- Display name helpers ----
 
     private static String styleName(int s) {
         return switch (s) {

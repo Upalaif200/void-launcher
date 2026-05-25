@@ -4,6 +4,10 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 
 public class FpsModule extends HudModule {
+    private String cachedText = "FPS: 0";
+    private int lastFps = -1;
+    private int lastColor;
+
     public FpsModule() {
         super(2, 2);
     }
@@ -12,12 +16,12 @@ public class FpsModule extends HudModule {
     public void render(GuiGraphics gg) {
         var mc = Minecraft.getInstance();
         int fps = mc.getFps();
-        String text = "FPS: " + fps;
-        int c;
-        if (fps >= 60) c = 0xFF00FF00;
-        else if (fps >= 30) c = 0xFFFFFF00;
-        else c = 0xFFFF0000;
-        gg.drawString(mc.font, text, x, y, c);
+        if (fps != lastFps) {
+            lastFps = fps;
+            cachedText = "FPS: " + fps;
+            lastColor = fps >= 60 ? 0xFF00FF00 : fps >= 30 ? 0xFFFFFF00 : 0xFFFF0000;
+        }
+        gg.drawString(mc.font, cachedText, x, y, lastColor);
     }
 
     @Override public int getWidth() { return Minecraft.getInstance().font.width("FPS: 999"); }

@@ -15,17 +15,14 @@ public class FullbrightModule extends HudModule {
     @Override
     public void render(GuiGraphics gg) {
         var mc = Minecraft.getInstance();
-        if (mc.player != null) {
-            if (visible && !wasEnabled) {
-                originalGamma = mc.options.gamma().get();
-                mc.options.gamma().set(100.0);
-                wasEnabled = true;
-            } else if (!visible && wasEnabled) {
-                mc.options.gamma().set(originalGamma);
-                wasEnabled = false;
-            } else if (visible) {
-                mc.options.gamma().set(100.0);
-            }
+        if (mc.player == null) return;
+        if (visible && !wasEnabled) {
+            originalGamma = mc.options.gamma().get();
+            mc.options.gamma().set(100.0);
+            wasEnabled = true;
+        } else if (!visible && wasEnabled) {
+            mc.options.gamma().set(originalGamma);
+            wasEnabled = false;
         }
     }
 

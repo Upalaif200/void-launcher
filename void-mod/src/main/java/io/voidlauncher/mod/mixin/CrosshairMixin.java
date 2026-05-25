@@ -11,13 +11,13 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 @Mixin(Gui.class)
 public class CrosshairMixin {
+    private static HudManager cachedHud;
+
     @Inject(method = "renderCrosshair", at = @At("HEAD"), cancellable = true)
     private void voidClient$onRenderCrosshair(GuiGraphics guiGraphics, DeltaTracker deltaTracker, CallbackInfo ci) {
-        for (var mod : HudManager.getInstance().getModules()) {
-            if (mod.isVisible() && mod.getClass().getSimpleName().equals("CrosshairModule")) {
-                ci.cancel();
-                return;
-            }
-        }
+        var mgr = cachedHud;
+        if (mgr == null) cachedHud = mgr = HudManager.getInstance();
+        var cm = mgr.getCrosshairModule();
+        if (cm != null && cm.isVisible()) ci.cancel();
     }
 }

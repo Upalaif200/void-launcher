@@ -52,10 +52,19 @@ public class CrosshairModule extends HudModule {
         gg.fill(cx - r, cy - r, cx + r + 1, cy + r + 1, c);
     }
 
+    private static int cachedCircleR = -1;
+    private static int[] cachedCircleDx;
+
     private void renderCircle(GuiGraphics gg, int cx, int cy, int c, float s) {
         int r = Math.round(5 * s);
+        if (r != cachedCircleR) {
+            cachedCircleR = r;
+            cachedCircleDx = new int[r * 2 + 1];
+            for (int i = -r; i <= r; i++)
+                cachedCircleDx[i + r] = (int) Math.round(Math.sqrt(r * r - i * i));
+        }
         for (int i = -r; i <= r; i++) {
-            int dx = (int) Math.round(Math.sqrt(r * r - i * i));
+            int dx = cachedCircleDx[i + r];
             gg.fill(cx - dx, cy + i, cx - dx + 1, cy + i + 1, c);
             gg.fill(cx + dx, cy + i, cx + dx + 1, cy + i + 1, c);
         }

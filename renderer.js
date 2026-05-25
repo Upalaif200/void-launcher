@@ -11,6 +11,7 @@ const os = require('os');
 // ─────────────────────────────────────────────
 // ESTADO GLOBAL
 // ─────────────────────────────────────────────
+const icon = name => `<svg class="icon"><use href="#icon-${name}"/></svg>`;
 let cfg = ipcRenderer.sendSync('get-config');
 let editingProfileId = null;   // null = crear nuevo
 const appVersion = ipcRenderer.sendSync('get-app-version');
@@ -68,15 +69,6 @@ ipcRenderer.on('update-downloaded', () => {
 
 ipcRenderer.on('update-not-available', () => {
     localStorage.removeItem(UPDATE_PENDING_KEY);
-});
-
-ipcRenderer.on('update-error', (_, err) => {
-    updateText.textContent = `Error al descargar actualización`;
-    updateActionBtn.textContent = 'Reintentar';
-    updateActionBtn.onclick = () => ipcRenderer.send('start-update');
-    updateProgressBar.style.display = 'none';
-    updateLaterBtn.textContent = 'Cerrar';
-    updateLaterBtn.onclick = () => hideUpdateNotification();
 });
 
 updateActionBtn.addEventListener('click', () => {
@@ -173,7 +165,8 @@ function refreshMainView() {
 
     document.getElementById('main-account-name').textContent = acc?.username || 'Sin cuenta';
     document.getElementById('main-profile-name').textContent = prof?.name || 'Sin perfil';
-    document.getElementById('main-profile-icon').textContent = prof?.icon || '⛏️';
+    const iconEl = document.getElementById('main-profile-icon');
+    if (prof?.icon) { iconEl.textContent = prof.icon; } else { iconEl.innerHTML = icon('gamepad'); }
     document.getElementById('main-profile-version').textContent = prof?.versionId || '─';
 
     const ram = prof?.ram || '4';
@@ -207,15 +200,29 @@ document.getElementById('toggle-dynamic-fov').addEventListener('change', saveCos
 document.getElementById('toggle-damage-tilt').addEventListener('change', saveCosmeticsState);
 
 const ramSlider = document.getElementById('ram-slider');
+const ramTrackFill = document.getElementById('ram-track-fill');
+const ramMaxLabel = document.getElementById('ram-max-label');
+let ramDebounce;
+
+function updateRamFill(val) {
+    const min = parseInt(ramSlider.min);
+    const max = parseInt(ramSlider.max);
+    const pct = ((val - min) / (max - min)) * 100;
+    ramSlider.style.setProperty('--fill-pct', pct.toFixed(1) + '%');
+    document.getElementById('ram-value').textContent = val;
+    if (ramTrackFill) ramTrackFill.style.width = pct.toFixed(1) + '%';
+}
+
 ramSlider.addEventListener('input', (e) => {
-    document.getElementById('ram-value').textContent = e.target.value;
-    cfg = ipcRenderer.sendSync('get-config');
-    const prof = cfg.profiles.find(p => p.id === cfg.activeProfileId);
-    if (prof) {
-        prof.ram = e.target.value;
-        ipcRenderer.sendSync('update-profile', prof);
-        cfg = ipcRenderer.sendSync('get-config');
-    }
+    updateRamFill(e.target.value);
+    clearTimeout(ramDebounce);
+    ramDebounce = setTimeout(() => {
+        const prof = cfg.profiles.find(p => p.id === cfg.activeProfileId);
+        if (prof) {
+            prof.ram = e.target.value;
+            ipcRenderer.sendSync('update-profile', prof);
+        }
+    }, 150);
 });
 
 // Dynamic RAM max (total system RAM - 1GB for OS)
@@ -223,10 +230,10 @@ const totalRamGB = Math.floor(os.totalmem() / (1024 * 1024 * 1024));
 const maxRam = Math.max(2, totalRamGB - 1);
 if (ramSlider) {
     ramSlider.max = maxRam;
-    if (parseInt(ramSlider.value) > maxRam) {
-        ramSlider.value = String(maxRam);
-        document.getElementById('ram-value').textContent = String(maxRam);
-    }
+    if (ramMaxLabel) ramMaxLabel.textContent = maxRam + ' GB';
+    const val = Math.min(parseInt(ramSlider.value), maxRam);
+    ramSlider.value = String(val);
+    updateRamFill(val);
 }
 
 // Play
@@ -243,7 +250,7 @@ playBtn.addEventListener('click', () => {
         return;
     }
     playBtn.disabled = true;
-    playBtn.textContent = '⏳ INICIANDO...';
+    playBtn.innerHTML = `${icon('loader')} INICIANDO...`;
     launchStatusBox.style.display = 'block';
     launchStatusText.textContent = 'Preparando lanzamiento...';
     ipcRenderer.send('launch-game', { profileId: prof.id });
@@ -258,14 +265,14 @@ ipcRenderer.on('launch-status', (_, { type, data, instances }) => {
         updateInstanceBadge(data);
     } else if (type === 'close') {
         playBtn.disabled = false;
-        playBtn.textContent = '▶ JUGAR';
+        playBtn.innerHTML = `${icon('play')} JUGAR`;
         launchStatusBox.style.display = 'none';
         launchProgressFill.style.width = '0%';
         updateInstanceBadge(instances || 0);
     } else if (type === 'error') {
         playBtn.disabled = false;
-        playBtn.textContent = '▶ JUGAR';
-        launchStatusText.textContent = `❌ ${data}`;
+        playBtn.innerHTML = `${icon('play')} JUGAR`;
+        launchStatusText.innerHTML = `${icon('x')} ${data}`;
     }
 });
 
@@ -303,13 +310,13 @@ function renderAccountsList() {
         card.className = `acct-card${isActive ? ' is-active' : ''}`;
         card.innerHTML = `
             <div class="acct-card-top">
-                <span class="acct-emoji">👤</span>
+                <span class="acct-emoji">${icon('user')}</span>
                 <span class="acct-name">${escHtml(acc.username)}</span>
                 ${isActive ? '<span class="acct-badge">ACTIVA</span>' : ''}
             </div>
             <div class="acct-actions">
                 ${!isActive ? `<button class="secondary-btn" onclick="selectAccount('${acc.id}')">Activar</button>` : ''}
-                <button class="secondary-btn uninstall-btn" onclick="removeAccount('${acc.id}')">🗑</button>
+                <button class="secondary-btn uninstall-btn" onclick="removeAccount('${acc.id}')">${icon('trash')}</button>
             </div>`;
         grid.appendChild(card);
     });
@@ -359,9 +366,9 @@ function renderProfilesList() {
             <div class="profile-card-name">${escHtml(prof.name)}</div>
             <div class="profile-card-version">${escHtml(prof.versionId || 'Sin versión')}</div>
             <div class="profile-card-actions" style="margin-top:6px;">
-                ${!isActive ? `<button class="secondary-btn" onclick="selectProfile('${prof.id}')">Activar</button>` : '<span style="font-size:10px;color:var(--accent);">✓ Activo</span>'}
-                <button class="secondary-btn" onclick="openEditProfile('${prof.id}')">✏️</button>
-                <button class="secondary-btn uninstall-btn" onclick="removeProfile('${prof.id}')">🗑</button>
+                ${!isActive ? `<button class="secondary-btn" onclick="selectProfile('${prof.id}')">Activar</button>` : '<span style="font-size:10px;color:var(--accent);">' + icon('check') + ' Activo</span>'}
+                <button class="secondary-btn" onclick="openEditProfile('${prof.id}')">${icon('edit')}</button>
+                <button class="secondary-btn uninstall-btn" onclick="removeProfile('${prof.id}')">${icon('trash')}</button>
             </div>`;
         grid.appendChild(card);
     });
@@ -624,10 +631,10 @@ async function doModpackSearch(reset = false) {
     const query = document.getElementById('modpack-search-input')?.value?.trim() ?? '';
     const btn = document.getElementById('modpack-search-btn');
     if (!btn) return;
-    btn.textContent = '⏳'; btn.disabled = true;
+    btn.innerHTML = `${icon('loader')}`; btn.disabled = true;
 
     const result = await ipcRenderer.invoke('search-modpacks', { query, offset: modpackSearchOffset });
-    btn.textContent = '🔍 Buscar'; btn.disabled = false;
+    btn.innerHTML = `${icon('search')} Buscar`; btn.disabled = false;
 
     modpackSearchTotal = result.total;
     const grid = document.getElementById('modpack-results-grid');
@@ -664,7 +671,7 @@ function buildModpackCard(pack) {
         : '📦';
 
     const author = pack.authors?.[0]?.name || '─';
-    const downloads = pack.downloadCount ? `⬇ ${formatNum(pack.downloadCount)}` : '';
+    const downloads = pack.downloadCount ? `${icon('download')} ${formatNum(pack.downloadCount)}` : '';
 
     card.innerHTML = `
         <div class="mod-icon">${iconHtml}</div>
@@ -676,7 +683,7 @@ function buildModpackCard(pack) {
             <div class="mod-actions">
                 <button class="secondary-btn install-btn"
                     onclick="openModpackVersions('${pack.id}','${escAttr(pack.name)}')">
-                    📦 Ver versiones
+                    ${icon('package')} Ver versiones
                 </button>
             </div>
         </div>`;
@@ -685,7 +692,7 @@ function buildModpackCard(pack) {
 
 async function openModpackVersions(projectId, modpackName) {
     const modal = document.getElementById('modpack-version-modal');
-    document.getElementById('modal-modpack-name').textContent = `📦 ${modpackName}`;
+    document.getElementById('modal-modpack-name').innerHTML = `${icon('package')} ${modpackName}`;
     const list = document.getElementById('modal-modpack-versions-list');
     list.innerHTML = '<div style="color:var(--text2);font-size:12px;padding:10px;">Buscando packs en CurseForge...</div>';
     modal.style.display = 'flex';
@@ -754,12 +761,12 @@ async function doInstallModpack(modpackName, versionData) {
 
     if (result.success) {
         cfg = ipcRenderer.sendSync('get-config');
-        progressText.textContent = `✅ ${modpackName} instalado — ${result.modsInstalled} mods, MC ${result.mcVersion}, loader: ${result.loaderType || 'vanilla'}`;
+        progressText.innerHTML = `${icon('check')} ${modpackName} instalado — ${result.modsInstalled} mods, MC ${result.mcVersion}, loader: ${result.loaderType || 'vanilla'}`;
         progressFill.style.width = '100%';
         refreshMainView();
-        alert(`✅ Modpack "${modpackName}" instalado con éxito.\n\n• ${result.modsInstalled} mods descargados\n• MC ${result.mcVersion}\n• Loader: ${result.loaderType || 'vanilla'}\n\nLa versión del perfil activo fue actualizada automáticamente.`);
+        alert(`✓ Modpack "${modpackName}" instalado con éxito.\n\n• ${result.modsInstalled} mods descargados\n• MC ${result.mcVersion}\n• Loader: ${result.loaderType || 'vanilla'}\n\nLa versión del perfil activo fue actualizada automáticamente.`);
     } else {
-        progressText.textContent = `❌ Error: ${result.error}`;
+        progressText.innerHTML = `${icon('x')} Error: ${result.error}`;
     }
 }
 
@@ -803,7 +810,7 @@ async function loadInstallVersions() {
     console.log('[INSTALL] loadInstallVersions, cached vanilla:', allVanillaVersions.length, 'fabric:', allFabricVersions.length);
 
     if (allVanillaVersions.length === 0) {
-        sel.innerHTML = '<option value="">⏳ Cargando...</option>';
+        sel.innerHTML = '<option value="">Cargando...</option>';
         console.log('[INSTALL] Fetching vanilla versions...');
         try {
             allVanillaVersions = await ipcRenderer.invoke('get-vanilla-versions');
@@ -853,7 +860,7 @@ document.getElementById('install-type').addEventListener('change', fillVanillaSe
 function fillVanillaSelect() {
     const sel = document.getElementById('vanilla-select');
     if (!allVanillaVersions || !allVanillaVersions.length) {
-        sel.innerHTML = '<option value="">⏳ Cargando...</option>';
+        sel.innerHTML = '<option value="">Cargando...</option>';
         return;
     }
     const tipo = document.getElementById('install-type').value;
@@ -884,17 +891,17 @@ document.getElementById('do-install-btn').addEventListener('click', async () => 
     const fabricVersion = fabricToggle.checked ? document.getElementById('fabric-select').value : null;
 
     const btn = document.getElementById('do-install-btn');
-    btn.disabled = true; btn.textContent = '⏳ Instalando...';
+    btn.disabled = true; btn.innerHTML = `${icon('loader')} Instalando...`;
     installStatusBox.style.display = 'block';
 
     const result = await ipcRenderer.invoke('install-version', { vanillaId, fabricVersion });
-    btn.disabled = false; btn.textContent = '⬇ INSTALAR';
+    btn.disabled = false; btn.innerHTML = `${icon('download')} INSTALAR`;
 
     if (result.success) {
-        installStatusText.textContent = `✅ Instalado: ${result.versionId}`;
+        installStatusText.innerHTML = `${icon('check')} Instalado: ${result.versionId}`;
         installProgressFill.style.width = '100%';
     } else {
-        installStatusText.textContent = `❌ Error: ${result.error}`;
+        installStatusText.innerHTML = `${icon('x')} Error: ${result.error}`;
     }
 });
 
@@ -917,7 +924,7 @@ document.getElementById('forge-mc-select').addEventListener('change', async func
     const mcVer = this.value;
     if (!mcVer) return;
     const fvsel = document.getElementById('forge-version-select');
-    fvsel.innerHTML = '<option value="">⏳ Cargando versiones de Forge...</option>';
+    fvsel.innerHTML = '<option value="">Cargando versiones de Forge...</option>';
     const versions = await ipcRenderer.invoke('get-forge-versions', { mcVersion: mcVer });
     fvsel.innerHTML = '';
     if (!versions.length) {
@@ -942,31 +949,22 @@ document.getElementById('do-forge-install-btn').addEventListener('click', async 
     if (!forgeVersion) { alert('Selecciona una versión de Forge'); return; }
 
     const btn = document.getElementById('do-forge-install-btn');
-    btn.disabled = true; btn.textContent = '⏳ Instalando Forge...';
+    btn.disabled = true; btn.innerHTML = `${icon('loader')} Instalando Forge...`;
     forgeStatusBox.style.display = 'block';
     forgeProgressFill.style.width = '0%';
 
     const result = await ipcRenderer.invoke('install-forge', { mcVersion, forgeVersion });
-    btn.disabled = false; btn.textContent = '⚒️ INSTALAR FORGE';
+    btn.disabled = false; btn.innerHTML = `${icon('hammer')} INSTALAR FORGE`;
 
     if (result.success) {
-        forgeStatusText.textContent = `✅ Forge instalado: ${result.versionId}`;
+        forgeStatusText.innerHTML = `${icon('check')} Forge instalado: ${result.versionId}`;
         forgeProgressFill.style.width = '100%';
-        alert(`✅ Forge instalado correctamente.\nVersionId: ${result.versionId}\n\nAhora puedes asignarlo a un perfil.`);
+        alert(`✓ Forge instalado correctamente.\nVersionId: ${result.versionId}\n\nAhora puedes asignarlo a un perfil.`);
     } else {
-        forgeStatusText.textContent = `❌ Error: ${result.error}`;
+        forgeStatusText.innerHTML = `${icon('x')} Error: ${result.error}`;
     }
 });
 
-ipcRenderer.on('install-progress', (_, { msg, percent }) => {
-    // Actualizar whichever status box is visible
-    [
-        [installStatusText, installProgressFill, installStatusBox],
-        [forgeStatusText, forgeProgressFill, forgeStatusBox]
-    ].forEach(([txt, fill, box]) => {
-        if (txt && fill) { txt.textContent = msg; fill.style.width = `${percent}%`; }
-    });
-});
 // ─────────────────────────────────────────────
 // CONTROL DE SCROLL Y "VOLVER ARRIBA"
 // ─────────────────────────────────────────────
@@ -974,9 +972,14 @@ const cfScrollContainer = document.querySelector('.cf-layout > .cf-main');
 const cfBackToTop = document.getElementById('cf-back-to-top');
 
 if (cfScrollContainer) {
+    let ticking = false;
     cfScrollContainer.addEventListener('scroll', () => {
-        if (cfBackToTop) {
-            cfBackToTop.style.display = cfScrollContainer.scrollTop > 300 ? 'flex' : 'none';
+        if (!ticking) {
+            requestAnimationFrame(() => {
+                if (cfBackToTop) cfBackToTop.style.display = cfScrollContainer.scrollTop > 300 ? 'flex' : 'none';
+                ticking = false;
+            });
+            ticking = true;
         }
     });
 }
@@ -1063,3 +1066,357 @@ navigate = function(viewId) {
         loadCosmeticsState();
     }
 };
+
+// ─────────────────────────────────────────────
+// THEME / SETTINGS ENGINE
+// ─────────────────────────────────────────────
+
+// ---- Default theme ----
+const DEFAULT_THEME = {
+    typography: {
+        title:   { family: "'Rajdhani', sans-serif", size: 24 },
+        subtitle:{ family: "'DM Sans', sans-serif",  size: 13 },
+        body:    { family: "'DM Sans', sans-serif",  size: 13 },
+        button:  { family: "'Rajdhani', sans-serif", size: 14 }
+    },
+    colors: {
+        background: {
+            colors: ['#010005', '#050015', '#0a0030', '#150060', '#200080'],
+            hasBorder: false, borderColor: '#8844ee',
+            animationColor: '#8844ee', useGradient: true,
+            gradientDirection: 'to bottom', gradientStops: 5
+        },
+        cards: {
+            colors: ['rgba(8,4,25,0.65)'], hasBorder: true, borderColor: 'rgba(120,80,200,0.18)',
+            animationColor: '#8844ee', useGradient: false,
+            gradientDirection: 'to bottom', gradientStops: 2
+        },
+        menu: {
+            colors: ['rgba(8,4,25,0.75)'], hasBorder: true, borderColor: 'rgba(120,80,200,0.15)',
+            animationColor: '#8844ee', useGradient: false,
+            gradientDirection: 'to bottom', gradientStops: 2
+        },
+        buttons: {
+            play: {
+                colors: ['#7c3aed'], hasBorder: false, borderColor: '#a78bfa',
+                animationColor: '#a78bfa', useGradient: false,
+                gradientDirection: 'to right', gradientStops: 2
+            },
+            activation: {
+                colors: ['#7c3aed'], hasBorder: false, borderColor: '#a78bfa',
+                animationColor: '#a78bfa', useGradient: false,
+                gradientDirection: 'to right', gradientStops: 2
+            },
+            edit: {
+                colors: ['rgba(110,60,220,0.25)'], hasBorder: true, borderColor: 'rgba(130,80,240,0.3)',
+                animationColor: '#8844ee', useGradient: false,
+                gradientDirection: 'to right', gradientStops: 2
+            },
+            config: {
+                colors: ['rgba(8,4,25,0.4)'], hasBorder: true, borderColor: 'rgba(120,80,200,0.2)',
+                animationColor: '#8844ee', useGradient: false,
+                gradientDirection: 'to right', gradientStops: 2
+            }
+        }
+    }
+};
+
+const FONT_OPTIONS = [
+    { label: 'Rajdhani', value: "'Rajdhani', sans-serif" },
+    { label: 'DM Sans', value: "'DM Sans', sans-serif" },
+    { label: 'Inter', value: "'Inter', sans-serif" },
+    { label: 'Segoe UI', value: "'Segoe UI', sans-serif" },
+    { label: 'Arial', value: "Arial, sans-serif" },
+    { label: 'Helvetica', value: "Helvetica, sans-serif" },
+    { label: 'System UI', value: "system-ui, sans-serif" },
+    { label: 'Monospace', value: "'Courier New', monospace" }
+];
+
+const DIRECTION_OPTIONS = [
+    'to bottom', 'to top', 'to right', 'to left',
+    'to bottom right', 'to bottom left', 'to top right', 'to top left'
+];
+
+let theme = JSON.parse(JSON.stringify(DEFAULT_THEME));
+
+function resolveColor(cat, defaultVal) {
+    return cat || defaultVal;
+}
+
+function buildGradient(cat) {
+    if (!cat.useGradient || cat.colors.length < 2) return cat.colors[0] || '#07040f';
+    const stops = cat.colors.slice(0, cat.gradientStops || 2);
+    return `linear-gradient(${cat.gradientDirection}, ${stops.join(', ')})`;
+}
+
+// ---- Typography controls ----
+function renderTypoSettings() {
+    const grid = document.getElementById('settings-typo-grid');
+    if (!grid) return;
+    const items = [
+        { key: 'title', label: 'Títulos' },
+        { key: 'subtitle', label: 'Subtítulos' },
+        { key: 'body', label: 'Textos' },
+        { key: 'button', label: 'Botones' }
+    ];
+    grid.innerHTML = items.map(({ key, label }) => {
+        const t = theme.typography[key];
+        const fontOpts = FONT_OPTIONS.map(f =>
+            `<option value="${f.value}"${f.value === t.family ? ' selected' : ''}>${f.label}</option>`
+        ).join('');
+        return `
+            <div class="settings-typo-row" data-typo-key="${key}">
+                <span class="settings-typo-label">${label}</span>
+                <select onchange="onTypoChange('${key}','family',this.value)">${fontOpts}</select>
+                <input type="number" min="10" max="48" value="${t.size}" onchange="onTypoChange('${key}','size',Number(this.value))">
+            </div>`;
+    }).join('');
+}
+
+function onTypoChange(key, prop, val) {
+    if (!theme.typography[key]) theme.typography[key] = {};
+    theme.typography[key][prop] = val;
+}
+
+// ---- Color controls ----
+function renderColorSettings() {
+    const container = document.getElementById('settings-colors-container');
+    if (!container) return;
+
+    const parts = [];
+
+    // Top-level categories
+    const topCats = ['background', 'cards', 'menu'];
+    topCats.forEach(key => {
+        parts.push(buildColorCategoryHTML(`colors.${key}`, getCatLabel(key), theme.colors[key]));
+    });
+
+    // Button sub-categories
+    parts.push(`<div class="settings-subcat-header">Botones</div>`);
+    const btnKeys = ['play', 'activation', 'edit', 'config'];
+    parts.push(`<div class="settings-btn-subgrid">`);
+    btnKeys.forEach(key => {
+        const cat = theme.colors.buttons[key];
+        if (cat) parts.push(buildColorCategoryHTML(`colors.buttons.${key}`, getBtnLabel(key), cat));
+    });
+    parts.push(`</div>`);
+    container.innerHTML = parts.join('');
+}
+
+function getCatLabel(key) {
+    const map = { background: 'Fondo', cards: 'Tarjetas', menu: 'Menú lateral' };
+    return map[key] || key;
+}
+
+function getBtnLabel(key) {
+    const map = { play: 'Jugar', activation: 'Activación', edit: 'Edición', config: 'Configuración' };
+    return map[key] || key;
+}
+
+function buildColorCategoryHTML(path, label, cat) {
+    const id = path.replace(/\./g, '-');
+    const colorInputs = [];
+    for (let i = 0; i < 5; i++) {
+        const val = cat.colors[i] || '#000000';
+        colorInputs.push(`
+            <input type="color" value="${toHex(val)}" data-index="${i}"
+                onchange="onColorChange('${path}',${i},this.value)"
+                ${i >= (cat.gradientStops || 1) ? ' style="display:none"' : ''}>`);
+    }
+    return `
+        <div class="settings-color-category">
+            <button class="settings-color-header" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'flex':'none'">
+                ${label} <svg class="icon"><use href="#icon-chevron-down"/></svg>
+            </button>
+            <div class="settings-color-body" style="display:none">
+                <div class="settings-color-row">
+                    <label>Colores</label>
+                    ${colorInputs.join('')}
+                    <select onchange="onColorStopsChange('${path}',Number(this.value))" style="width:60px;">
+                        ${[1,2,3,4,5].map(n => `<option value="${n}"${(cat.gradientStops||1)===n?' selected':''}>${n}</option>`).join('')}
+                    </select>
+                </div>
+                <div class="settings-color-row">
+                    <label>Degradado</label>
+                    <label class="settings-toggle">
+                        <input type="checkbox" ${cat.useGradient ? 'checked' : ''} onchange="onColorToggle('${path}','useGradient',this.checked)">
+                        Activo
+                    </label>
+                    <select ${!cat.useGradient ? 'style="display:none"' : ''} onchange="onColorChange('${path}','gradientDirection',this.value)" class="gradient-dir">
+                        ${DIRECTION_OPTIONS.map(d => `<option value="${d}"${cat.gradientDirection===d?' selected':''}>${d}</option>`).join('')}
+                    </select>
+                </div>
+                <div class="settings-color-row">
+                    <label>Bordes</label>
+                    <label class="settings-toggle">
+                        <input type="checkbox" ${cat.hasBorder ? 'checked' : ''} onchange="onColorToggle('${path}','hasBorder',this.checked)">
+                        Visible
+                    </label>
+                    <input type="color" value="${toHex(cat.borderColor)}" onchange="onColorChange('${path}','borderColor',this.value)">
+                </div>
+                <div class="settings-color-row">
+                    <label>Animación</label>
+                    <input type="color" value="${toHex(cat.animationColor)}" onchange="onColorChange('${path}','animationColor',this.value)">
+                </div>
+            </div>
+        </div>`;
+}
+
+const _toHexCtx = document.createElement('canvas').getContext('2d');
+function toHex(color) {
+    if (color.startsWith('#')) return color;
+    _toHexCtx.fillStyle = color;
+    const c = _toHexCtx.fillStyle;
+    const m = c.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+    if (m) return '#' + [m[1],m[2],m[3]].map(n => parseInt(n).toString(16).padStart(2,'0')).join('');
+    return '#7c3aed';
+}
+
+function onColorChange(path, indexOrProp, val) {
+    const cat = getCatByPath(path);
+    if (typeof indexOrProp === 'number') {
+        cat.colors[indexOrProp] = val;
+    } else {
+        cat[indexOrProp] = val;
+    }
+}
+
+function onColorToggle(path, prop, val) {
+    const cat = getCatByPath(path);
+    cat[prop] = val;
+    setTimeout(renderColorSettings, 0);
+}
+
+function onColorStopsChange(path, n) {
+    const cat = getCatByPath(path);
+    cat.gradientStops = n;
+    renderColorSettings();
+}
+
+function getCatByPath(path) {
+    const parts = path.split('.');
+    let cur = theme;
+    for (const p of parts) cur = cur[p];
+    return cur;
+}
+
+// ---- Apply theme ----
+function applyTheme() {
+    const root = document.documentElement;
+    const t = theme.typography;
+    const c = theme.colors;
+
+    root.style.setProperty('--font-title', t.title.family);
+    root.style.setProperty('--font-body', t.body.family);
+    root.style.setProperty('--title-size', t.title.size + 'px');
+    root.style.setProperty('--subtitle-size', t.subtitle.size + 'px');
+    root.style.setProperty('--body-size', t.body.size + 'px');
+    root.style.setProperty('--btn-size', t.button.size + 'px');
+
+    const bgGrad = buildGradient(c.background);
+    root.style.setProperty('--bg', bgGrad);
+    root.style.setProperty('--surface', buildGradient(c.cards));
+    root.style.setProperty('--surface2', c.cards.colors[0] || 'rgba(8,4,25,0.55)');
+    root.style.setProperty('--surface3', c.cards.colors[0] ? c.cards.colors[0].replace('0.65','0.4') : 'rgba(20,10,45,0.50)');
+
+    const menuBg = buildGradient(c.menu);
+    document.querySelector('.sidebar').style.background = menuBg;
+    if (c.menu.hasBorder) {
+        document.querySelector('.sidebar').style.borderRight = '1px solid ' + c.menu.borderColor;
+    } else {
+        document.querySelector('.sidebar').style.borderRight = 'none';
+    }
+
+    const pb = c.buttons.play;
+    const playBtn = document.getElementById('play-btn');
+    if (playBtn) playBtn.style.background = buildGradient(pb);
+
+    const ab = c.buttons.activation;
+    root.style.setProperty('--accent', ab.colors[0] || '#7c3aed');
+    root.style.setProperty('--accent2', ab.colors[1] ? ab.colors[1] : '#5b21b6');
+    root.style.setProperty('--accent-glow', ab.animationColor ? ab.animationColor.replace(')', ',0.35)').replace('rgb','rgba') : 'rgba(124,58,237,0.35)');
+
+    // Border control for cards
+    const borderVal = c.cards.hasBorder ? `1px solid ${c.cards.borderColor}` : 'none';
+    root.style.setProperty('--card-border', borderVal);
+
+    // Animation glow color
+    root.style.setProperty('--anim-glow', c.background.animationColor || '#8844ee');
+
+    // Update Three.js background scene
+    if (window.__updateBgTheme) {
+        window.__updateBgTheme(c);
+    }
+}
+
+// ---- Save / Load ----
+function saveTheme() {
+    ipcRenderer.sendSync('set-config-key', { key: 'theme', value: theme });
+    cfg = ipcRenderer.sendSync('get-config');
+    applyTheme();
+    renderTypoSettings();
+    renderColorSettings();
+}
+
+function loadTheme() {
+    const saved = cfg?.theme;
+    if (saved) {
+        theme = deepMerge(JSON.parse(JSON.stringify(DEFAULT_THEME)), saved);
+    }
+}
+
+function deepMerge(base, override) {
+    const result = JSON.parse(JSON.stringify(base));
+    for (const key of Object.keys(override)) {
+        if (override[key] && typeof override[key] === 'object' && !Array.isArray(override[key]) && result[key]) {
+            result[key] = deepMerge(result[key], override[key]);
+        } else {
+            result[key] = override[key];
+        }
+    }
+    return result;
+}
+
+// ---- Init ----
+function initSettings() {
+    loadTheme();
+
+    // Tab switching
+    document.querySelectorAll('.settings-tab').forEach(tab => {
+        tab.addEventListener('click', () => {
+            document.querySelectorAll('.settings-tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.settings-tab-panel').forEach(p => p.classList.remove('active'));
+            tab.classList.add('active');
+            const panel = document.getElementById(tab.dataset.settingsTab);
+            if (panel) panel.classList.add('active');
+        });
+    });
+
+    // Reset
+    document.getElementById('settings-reset-btn')?.addEventListener('click', () => {
+        theme = JSON.parse(JSON.stringify(DEFAULT_THEME));
+        applyTheme();
+        renderTypoSettings();
+        renderColorSettings();
+    });
+
+    // Save
+    document.getElementById('settings-save-btn')?.addEventListener('click', saveTheme);
+
+    renderTypoSettings();
+    renderColorSettings();
+    applyTheme();
+}
+
+// ── Auto-init when settings view is shown ──
+const origNavigate2 = navigate;
+navigate = function(viewId) {
+    origNavigate2(viewId);
+    if (viewId === 'view-settings') {
+        loadTheme();
+        renderTypoSettings();
+        renderColorSettings();
+    }
+};
+
+initSettings();

@@ -9,6 +9,8 @@ import java.util.Deque;
 public class CpsModule extends HudModule {
     private final Deque<Long> leftClicks = new ArrayDeque<>();
     private final Deque<Long> rightClicks = new ArrayDeque<>();
+    private int cachedLeftCps, cachedRightCps;
+    private long lastCleanup;
 
     public CpsModule() {
         super(2, 14);
@@ -17,26 +19,27 @@ public class CpsModule extends HudModule {
     public void addLeftClick() {
         long now = System.currentTimeMillis();
         leftClicks.addLast(now);
+        cleanup(leftClicks, now);
+        cachedLeftCps = leftClicks.size();
     }
 
     public void addRightClick() {
         long now = System.currentTimeMillis();
         rightClicks.addLast(now);
+        cleanup(rightClicks, now);
+        cachedRightCps = rightClicks.size();
     }
 
-    private int getCps(Deque<Long> clicks) {
-        long threshold = System.currentTimeMillis() - 1000;
+    private static void cleanup(Deque<Long> clicks, long now) {
+        long threshold = now - 1000;
         while (!clicks.isEmpty() && clicks.peekFirst() < threshold) {
             clicks.pollFirst();
         }
-        return clicks.size();
     }
 
     @Override
     public void render(GuiGraphics gg) {
-        int lCps = getCps(leftClicks);
-        int rCps = getCps(rightClicks);
-        String text = "L:" + lCps + " R:" + rCps;
+        String text = "L:" + cachedLeftCps + " R:" + cachedRightCps;
         gg.drawString(Minecraft.getInstance().font, text, x, y, color);
     }
 
