@@ -1,6 +1,6 @@
 {
   "name": "void-launcher",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Launcher creado con el propósito de, aparte de Jugar al Minecraft, jugar con la seguridad de que no hay ningún tipo de Malware.",
   "author": "UP",
   "repository": "Upalaif200/void-launcher",
@@ -8,6 +8,7 @@
   "scripts": {
     "start": "electron .",
     "build": "electron-builder --win",
+    "publish": "electron-builder --win --publish always",
     "postinstall": "node scripts/generate-icon.js"
   },
   "build": {
