@@ -113,34 +113,36 @@ app.whenReady().then(() => {
     // ── Auto-updater ──
     autoUpdater.logger = console;
     autoUpdater.autoDownload = false;
-    autoUpdater.forceDevUpdateConfig = true;
-    autoUpdater.on('update-available', async (info) => {
-        const { response } = await dialog.showMessageBox({
-            type: 'info', title: 'Actualización disponible',
-            message: `Nueva versión ${info.version} disponible`,
-            detail: '¿Descargar e instalar la actualización ahora?',
-            buttons: ['Descargar e instalar', 'Cancelar']
-        });
-        if (response !== 0) return;
-        try {
-            await autoUpdater.downloadUpdate();
-            autoUpdater.quitAndInstall(false, true);
-        } catch (e) {
-            console.error('[UPDATER] Error:', e);
-            dialog.showMessageBox({
-                type: 'error', title: 'Error de actualización',
-                message: 'No se pudo descargar la actualización',
-                detail: String(e)
-            });
-        }
+    if (!app.isPackaged) autoUpdater.forceDevUpdateConfig = true;
+    const win = () => BrowserWindow.getFocusedWindow();
+
+    autoUpdater.on('update-available', (info) => {
+        win()?.webContents.send('update-available', info);
     });
     autoUpdater.on('update-not-available', () => {
+        win()?.webContents.send('update-not-available');
         console.log('[UPDATER] No update available');
     });
     autoUpdater.on('download-progress', (prog) => {
-        console.log(`[UPDATER] Download: ${Math.round(prog.percent)}%`);
+        win()?.webContents.send('update-progress', prog);
     });
-    autoUpdater.checkForUpdates().catch(() => {});
+    autoUpdater.on('update-downloaded', () => {
+        win()?.webContents.send('update-downloaded');
+    });
+
+    ipcMain.on('start-update', async () => {
+        try {
+            await autoUpdater.downloadUpdate();
+        } catch (e) {
+            console.error('[UPDATER] Download error:', e);
+            win()?.webContents.send('update-error', String(e));
+        }
+    });
+    ipcMain.on('install-update', () => {
+        autoUpdater.quitAndInstall(false, true);
+    });
+
+    autoUpdater.checkForUpdates().catch(e => console.error('[UPDATER] Check error:', e));
 });
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 

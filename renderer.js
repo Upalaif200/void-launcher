@@ -18,6 +18,85 @@ document.title = `Void Launcher v${appVersion}`;
 document.querySelector('.app-name').textContent = `VOID LAUNCHER v${appVersion}`;
 
 // ─────────────────────────────────────────────
+// AUTO-UPDATER — NOTIFICACIÓN EN UI
+// ─────────────────────────────────────────────
+const updateNotification = document.getElementById('update-notification');
+const updateText = document.getElementById('update-notification-text');
+const updateActionBtn = document.getElementById('update-action-btn');
+const updateLaterBtn = document.getElementById('update-later-btn');
+const updateProgressBar = document.getElementById('update-progress-bar');
+const updateProgressFill = document.getElementById('update-progress-fill');
+const updateProgressText = document.getElementById('update-progress-text');
+
+const UPDATE_PENDING_KEY = 'void-update-pending';
+
+function showUpdateNotification(version) {
+    updateText.textContent = `Nueva versión ${version} disponible`;
+    updateNotification.style.display = 'flex';
+    updateProgressBar.style.display = 'none';
+}
+
+function hideUpdateNotification() {
+    updateNotification.style.display = 'none';
+    updateProgressBar.style.display = 'none';
+    updateProgressFill.style.width = '0%';
+    updateProgressText.textContent = '';
+}
+
+function showUpdateProgress(percent, bytesPerSecond) {
+    updateProgressBar.style.display = 'block';
+    updateProgressFill.style.width = `${percent}%`;
+    const speed = bytesPerSecond ? ` (${(bytesPerSecond / 1024 / 1024).toFixed(1)} MB/s)` : '';
+    updateProgressText.textContent = `Descargando... ${percent}%${speed}`;
+}
+
+ipcRenderer.on('update-available', (_, info) => {
+    showUpdateNotification(info.version);
+});
+
+ipcRenderer.on('update-progress', (_, prog) => {
+    showUpdateProgress(Math.round(prog.percent), prog.bytesPerSecond);
+});
+
+ipcRenderer.on('update-downloaded', () => {
+    updateProgressFill.style.width = '100%';
+    updateProgressText.textContent = 'Descarga completada. Instalando...';
+    setTimeout(() => {
+        ipcRenderer.send('install-update');
+    }, 500);
+});
+
+ipcRenderer.on('update-not-available', () => {
+    localStorage.removeItem(UPDATE_PENDING_KEY);
+});
+
+ipcRenderer.on('update-error', (_, err) => {
+    updateText.textContent = `Error al descargar actualización`;
+    updateActionBtn.textContent = 'Reintentar';
+    updateActionBtn.onclick = () => ipcRenderer.send('start-update');
+    updateProgressBar.style.display = 'none';
+    updateLaterBtn.textContent = 'Cerrar';
+    updateLaterBtn.onclick = () => hideUpdateNotification();
+});
+
+updateActionBtn.addEventListener('click', () => {
+    updateActionBtn.textContent = 'Descargando...';
+    updateActionBtn.disabled = true;
+    ipcRenderer.send('start-update');
+});
+
+updateLaterBtn.addEventListener('click', () => {
+    hideUpdateNotification();
+    localStorage.setItem(UPDATE_PENDING_KEY, 'true');
+});
+
+// Re-show notification if update was pending
+if (localStorage.getItem(UPDATE_PENDING_KEY) === 'true') {
+    showUpdateNotification('...');
+    updateText.textContent = 'Hay una actualización pendiente';
+}
+
+// ─────────────────────────────────────────────
 // SKIN VIEWER 3D
 // ─────────────────────────────────────────────
 const skinContainer = document.getElementById('skin-container');

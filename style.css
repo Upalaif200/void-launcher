@@ -48,6 +48,95 @@ body {
     font-size: 13px;
 }
 
+/* ── UPDATE NOTIFICATION ── */
+.update-notification {
+    position: relative;
+    z-index: 99;
+    display: flex;
+    flex-direction: column;
+    background: rgba(20, 10, 50, 0.95);
+    border-bottom: 1px solid rgba(140, 90, 255, 0.35);
+    padding: 8px 16px;
+}
+
+.update-notification-content {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.update-notification-icon {
+    font-size: 16px;
+}
+
+.update-notification-text {
+    flex: 1;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text);
+}
+
+.update-action-btn {
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    padding: 5px 16px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.update-action-btn:hover {
+    background: var(--accent2);
+}
+
+.update-action-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.update-later-btn {
+    background: transparent;
+    color: var(--text2);
+    border: 1px solid rgba(140, 90, 255, 0.25);
+    padding: 5px 12px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.update-later-btn:hover {
+    background: rgba(140, 90, 255, 0.1);
+}
+
+.update-progress-bar {
+    margin-top: 6px;
+    height: 6px;
+    background: rgba(140, 90, 255, 0.15);
+    border-radius: 3px;
+    overflow: hidden;
+    position: relative;
+}
+
+.update-progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent), var(--accent-light));
+    border-radius: 3px;
+    transition: width 0.3s ease;
+}
+
+.update-progress-text {
+    position: absolute;
+    right: 0;
+    top: -16px;
+    font-size: 10px;
+    color: var(--text2);
+}
+
 /* ── NEBULA OVERLAY ── */
 #nebula-overlay {
     position: fixed;
