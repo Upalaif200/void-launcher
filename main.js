@@ -118,12 +118,20 @@ app.whenReady().then(() => {
         const { response } = await dialog.showMessageBox({
             type: 'info', title: 'Actualización disponible',
             message: `Nueva versión ${info.version} disponible`,
-            detail: '¿Descargar la actualización ahora?',
-            buttons: ['Descargar', 'Cancelar']
+            detail: '¿Descargar e instalar la actualización ahora?',
+            buttons: ['Descargar e instalar', 'Cancelar']
         });
-        if (response === 0) {
-            try { await autoUpdater.downloadUpdate(); }
-            catch (e) { console.error('[UPDATER] Download error:', e); }
+        if (response !== 0) return;
+        try {
+            await autoUpdater.downloadUpdate();
+            autoUpdater.quitAndInstall(false, true);
+        } catch (e) {
+            console.error('[UPDATER] Error:', e);
+            dialog.showMessageBox({
+                type: 'error', title: 'Error de actualización',
+                message: 'No se pudo descargar la actualización',
+                detail: String(e)
+            });
         }
     });
     autoUpdater.on('update-not-available', () => {
@@ -131,15 +139,6 @@ app.whenReady().then(() => {
     });
     autoUpdater.on('download-progress', (prog) => {
         console.log(`[UPDATER] Download: ${Math.round(prog.percent)}%`);
-    });
-    autoUpdater.on('update-downloaded', async () => {
-        const { response } = await dialog.showMessageBox({
-            type: 'info', title: 'Actualización lista',
-            message: 'La actualización se ha descargado',
-            detail: '¿Reiniciar ahora para instalarla?',
-            buttons: ['Reiniciar ahora', 'Más tarde']
-        });
-        if (response === 0) autoUpdater.quitAndInstall(false, true);
     });
     autoUpdater.checkForUpdates().catch(() => {});
 });
