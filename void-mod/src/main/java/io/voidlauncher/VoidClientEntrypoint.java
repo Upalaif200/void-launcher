@@ -1,7 +1,7 @@
 package io.voidlauncher;
 
 import io.voidlauncher.mod.gui.HudSettingsScreen;
-import io.voidlauncher.mod.gui.ModuleEditorScreen;
+import io.voidlauncher.mod.gui.VoidCustomizationScreen;
 import io.voidlauncher.mod.hud.*;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
@@ -65,7 +65,7 @@ public class VoidClientEntrypoint implements ClientModInitializer {
                 client.setScreen(new HudSettingsScreen());
             }
             if (editorKey.consumeClick() && client.screen == null) {
-                client.setScreen(new ModuleEditorScreen());
+                client.setScreen(new VoidCustomizationScreen());
             }
         });
     }

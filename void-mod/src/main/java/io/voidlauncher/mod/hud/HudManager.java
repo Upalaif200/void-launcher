@@ -11,6 +11,7 @@ public class HudManager {
     private static HudManager instance;
     private final List<HudModule> modules = new ArrayList<>();
     private final ModuleConfig config;
+    private final AnimationController animator = new AnimationController();
     private HudModule dragTarget;
     private int dragOffX, dragOffY;
     private boolean wasLeftDown;
@@ -24,13 +25,18 @@ public class HudManager {
         return instance;
     }
 
+    public AnimationController getAnimator() { return animator; }
+
     public void register(HudModule module) {
         var data = config.getOrCreate(module.getClass().getSimpleName());
         module.setX(data.x);
         module.setY(data.y);
         module.setVisible(data.visible);
         module.setColor(data.color);
-        // [VOID-CLIENT ADDITION] restore style for CrosshairModule
+        module.setScale(data.scale);
+        module.setAlpha(data.alpha);
+        module.setAnimation(data.animation);
+        module.setForm(data.form);
         if (module instanceof CrosshairModule cm) {
             cm.setStyle(data.style);
         }
@@ -40,6 +46,8 @@ public class HudManager {
     public void renderAll(GuiGraphics gg) {
         var mc = Minecraft.getInstance();
         if (mc.screen != null || mc.player == null) return;
+
+        animator.tick();
 
         var win = mc.getWindow();
         long handle = win.handle();
@@ -76,7 +84,18 @@ public class HudManager {
         wasLeftDown = left;
 
         for (var mod : modules) {
-            if (mod.isVisible()) mod.render(gg);
+            if (!mod.isVisible()) continue;
+
+            int origX = mod.getX();
+            int origY = mod.getY();
+
+            mod.setX(origX + animator.getXOffset(mod.getAnimation()));
+            mod.setY(origY + animator.getYOffset(mod.getAnimation()));
+
+            mod.render(gg);
+
+            mod.setX(origX);
+            mod.setY(origY);
         }
     }
 
@@ -87,7 +106,10 @@ public class HudManager {
             data.y = mod.getY();
             data.visible = mod.isVisible();
             data.color = mod.getColor();
-            // [VOID-CLIENT ADDITION] persist style for CrosshairModule
+            data.scale = mod.getScale();
+            data.alpha = mod.getAlpha();
+            data.animation = mod.getAnimation();
+            data.form = mod.getForm();
             if (mod instanceof CrosshairModule cm) {
                 data.style = cm.getStyle();
             }

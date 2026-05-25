@@ -21,11 +21,22 @@ public class ModuleConfig {
         public int x, y;
         public boolean visible = true;
         public int color = 0xFFFFFFFF;
-        public int style; // [VOID-CLIENT ADDITION] for CrosshairModule style
+        public int style;
+        public float scale = 1.0f;
+        public float alpha = 1.0f;
+        public int animation;
+        public int form;
     }
 
     public ModuleData getOrCreate(String name) {
-        return modules.computeIfAbsent(name, k -> new ModuleData());
+        ModuleData d = modules.get(name);
+        if (d == null) {
+            d = new ModuleData();
+            modules.put(name, d);
+        }
+        if (d.scale == 0f) d.scale = 1.0f;
+        if (d.alpha == 0f) d.alpha = 1.0f;
+        return d;
     }
 
     public void save() {

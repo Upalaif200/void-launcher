@@ -76,7 +76,7 @@ public class HudSettingsScreen extends Screen {
                 styleBtn = addRenderableWidget(Button.builder(
                     Component.literal("Style:" + cm.getStyle()),
                     btn -> {
-                        int next = (cm.getStyle() + 1) % 4;
+                        int next = (cm.getStyle() + 1) % 5;
                         cm.setStyle(next);
                         btn.setMessage(Component.literal("Style:" + next));
                     })

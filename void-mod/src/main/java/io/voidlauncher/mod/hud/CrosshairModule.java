@@ -5,7 +5,7 @@ import net.minecraft.client.gui.GuiGraphics;
 
 public class CrosshairModule extends HudModule {
     private static final int SIZE = 6, GAP = 3, THICK = 1;
-    private int style; // 0-3 persisted via config
+    private int style;
 
     public CrosshairModule() {
         super(0, 0);
@@ -21,38 +21,39 @@ public class CrosshairModule extends HudModule {
         if (mc.player == null) return;
         int cx = mc.getWindow().getGuiScaledWidth() / 2;
         int cy = mc.getWindow().getGuiScaledHeight() / 2;
-        int c = color;
+        int c = applyAlpha(color);
+        float s = getRenderScale();
 
         switch (style) {
-            case 0 -> renderDefault(gg, cx, cy, c);
-            case 1 -> renderClassicPlus(gg, cx, cy, c);
-            case 2 -> renderDot(gg, cx, cy, c);
-            case 3 -> renderCircle(gg, cx, cy, c);
+            case 0 -> renderDefault(gg, cx, cy, c, s);
+            case 1 -> renderClassicPlus(gg, cx, cy, c, s);
+            case 2 -> renderDot(gg, cx, cy, c, s);
+            case 3 -> renderCircle(gg, cx, cy, c, s);
+            default -> renderDefault(gg, cx, cy, c, s);
         }
     }
 
-    private void renderDefault(GuiGraphics gg, int cx, int cy, int c) {
-        gg.fill(cx - GAP - SIZE, cy - THICK, cx - GAP, cy + THICK, c);
-        gg.fill(cx + GAP, cy - THICK, cx + GAP + SIZE, cy + THICK, c);
-        gg.fill(cx - THICK, cy - GAP - SIZE, cx + THICK, cy - GAP, c);
-        gg.fill(cx - THICK, cy + GAP, cx + THICK, cy + GAP + SIZE, c);
+    private void renderDefault(GuiGraphics gg, int cx, int cy, int c, float s) {
+        int size = Math.round(SIZE * s), gap = Math.round(GAP * s);
+        gg.fill(cx - gap - size, cy - 1, cx - gap, cy + 1, c);
+        gg.fill(cx + gap, cy - 1, cx + gap + size, cy + 1, c);
+        gg.fill(cx - 1, cy - gap - size, cx + 1, cy - gap, c);
+        gg.fill(cx - 1, cy + gap, cx + 1, cy + gap + size, c);
     }
 
-    private void renderClassicPlus(GuiGraphics gg, int cx, int cy, int c) {
-        int len = SIZE + GAP;
-        gg.fill(cx - len, cy - THICK, cx + len, cy + THICK, c);
-        gg.fill(cx - THICK, cy - len, cx + THICK, cy + len, c);
+    private void renderClassicPlus(GuiGraphics gg, int cx, int cy, int c, float s) {
+        int len = Math.round((SIZE + GAP) * s);
+        gg.fill(cx - len, cy - 1, cx + len, cy + 1, c);
+        gg.fill(cx - 1, cy - len, cx + 1, cy + len, c);
     }
 
-    private void renderDot(GuiGraphics gg, int cx, int cy, int c) {
-        gg.fill(cx - 1, cy - 1, cx + 2, cy + 2, c);
+    private void renderDot(GuiGraphics gg, int cx, int cy, int c, float s) {
+        int r = Math.max(1, Math.round(s));
+        gg.fill(cx - r, cy - r, cx + r + 1, cy + r + 1, c);
     }
 
-    private void renderCircle(GuiGraphics gg, int cx, int cy, int c) {
-        int r = 5;
-        gg.fill(cx - r, cy, cx + r, cy + 1, c);
-        gg.fill(cx, cy - r, cx + 1, cy + r, c);
-        // Approximate circle with fills at radius intervals
+    private void renderCircle(GuiGraphics gg, int cx, int cy, int c, float s) {
+        int r = Math.round(5 * s);
         for (int i = -r; i <= r; i++) {
             int dx = (int) Math.round(Math.sqrt(r * r - i * i));
             gg.fill(cx - dx, cy + i, cx - dx + 1, cy + i + 1, c);
@@ -60,6 +61,15 @@ public class CrosshairModule extends HudModule {
         }
     }
 
-    @Override public int getWidth() { return 2 * (GAP + SIZE); }
-    @Override public int getHeight() { return 2 * (GAP + SIZE); }
+    @Override
+    public int getWidth() {
+        float s = getRenderScale();
+        return Math.round(2 * (GAP + SIZE) * s);
+    }
+
+    @Override
+    public int getHeight() {
+        float s = getRenderScale();
+        return Math.round(2 * (GAP + SIZE) * s);
+    }
 }
