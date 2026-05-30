@@ -48,7 +48,7 @@
 }
 
 body {
-    background: transparent;
+    background: #07040f;
     color: var(--text);
     overflow: hidden;
     height: 100vh;
@@ -2095,4 +2095,253 @@ input[type="checkbox"] {
     padding-left: 12px;
     border-left: 2px solid rgba(120, 80, 200, 0.15);
     margin-top: 6px;
+}
+
+/* ── SETTINGS — BEHAVIOR ── */
+.settings-behavior-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-width: 420px;
+    background: rgba(8, 4, 25, 0.4);
+    border: 1px solid rgba(120, 80, 200, 0.12);
+    border-radius: 12px;
+    padding: 16px;
+}
+
+.settings-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 0;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text);
+    text-transform: none;
+    letter-spacing: 0;
+    cursor: pointer;
+}
+
+.settings-toggle input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--accent);
+}
+
+/* ══════════════════════════════════════════
+   WARDROBE STYLES
+   ══════════════════════════════════════════ */
+.wardrobe-actions {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 16px;
+}
+
+.wardrobe-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: 12px;
+    max-width: 700px;
+}
+
+.wardrobe-card {
+    background: rgba(8, 4, 25, 0.6);
+    border: 1px solid rgba(120, 80, 200, 0.18);
+    border-radius: 12px;
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    transition: border-color .2s, transform .15s;
+}
+
+.wardrobe-card:hover {
+    border-color: rgba(160, 110, 255, 0.35);
+    transform: translateY(-2px);
+}
+
+.wardrobe-thumb {
+    width: 64px;
+    height: 64px;
+    border-radius: 8px;
+    overflow: hidden;
+    background: rgba(5, 3, 18, 0.6);
+    border: 1px solid rgba(120, 80, 200, 0.15);
+}
+
+.wardrobe-thumb canvas {
+    width: 100%;
+    height: 100%;
+    display: block;
+}
+
+.wardrobe-name {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text2);
+    text-align: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+}
+
+.wardrobe-card .wardrobe-actions {
+    display: flex;
+    gap: 6px;
+    margin-top: auto;
+}
+
+.wardrobe-apply-btn,
+.wardrobe-delete-btn {
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+    border: 1px solid rgba(120, 80, 200, 0.2);
+    background: rgba(80, 60, 180, 0.12);
+    color: var(--text2);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all .15s;
+    font-size: 12px;
+}
+
+.wardrobe-apply-btn:hover {
+    background: rgba(34, 197, 94, 0.15);
+    border-color: rgba(34, 197, 94, 0.3);
+    color: #22c55e;
+}
+
+.wardrobe-delete-btn:hover {
+    background: rgba(200, 40, 40, 0.15);
+    border-color: rgba(220, 60, 60, 0.25);
+    color: #ef4444;
+}
+
+/* ══════════════════════════════════════════
+   SOCIAL STYLES
+   ══════════════════════════════════════════ */
+.social-peer-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-width: 500px;
+}
+
+.social-peer-card {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: rgba(8, 4, 25, 0.6);
+    border: 1px solid rgba(120, 80, 200, 0.18);
+    border-radius: 12px;
+    padding: 12px 16px;
+    transition: border-color .2s;
+    animation: cardEntrance .35s ease both;
+}
+
+.social-peer-card:hover {
+    border-color: rgba(160, 110, 255, 0.3);
+}
+
+.social-peer-avatar {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: rgba(80, 60, 180, 0.2);
+    border: 1px solid rgba(120, 80, 200, 0.2);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text2);
+    flex-shrink: 0;
+}
+
+.social-peer-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.social-peer-name {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text);
+}
+
+.social-peer-meta {
+    font-size: 10px;
+    color: var(--text2);
+    margin-top: 1px;
+}
+
+.social-peer-time {
+    font-size: 10px;
+    color: var(--text3);
+    white-space: nowrap;
+}
+
+/* ══════════════════════════════════════════
+   NAV BADGE
+   ══════════════════════════════════════════ */
+.nav-badge {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    min-width: 16px;
+    height: 16px;
+    border-radius: 8px;
+    background: var(--red);
+    color: #fff;
+    font-size: 9px;
+    font-weight: 700;
+    align-items: center;
+    justify-content: center;
+    padding: 0 4px;
+    box-shadow: 0 0 6px rgba(239, 68, 68, 0.4);
+}
+
+/* ══════════════════════════════════════════
+   TOAST NOTIFICATIONS
+   ══════════════════════════════════════════ */
+.toast-notification {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    z-index: 9999;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 20px;
+    border-radius: 10px;
+    font-size: 12px;
+    font-weight: 600;
+    backdrop-filter: blur(12px);
+    box-shadow: 0 8px 32px rgba(7, 4, 15, 0.5);
+    animation: toastIn .3s ease;
+    transition: opacity .3s ease, transform .3s ease;
+}
+
+.toast-success {
+    background: rgba(20, 80, 40, 0.85);
+    border: 1px solid rgba(34, 197, 94, 0.3);
+    color: #86efac;
+}
+
+.toast-error {
+    background: rgba(80, 20, 20, 0.85);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    color: #fca5a5;
+}
+
+.toast-fade {
+    opacity: 0;
+    transform: translateY(8px);
+}
+
+@keyframes toastIn {
+    from { opacity: 0; transform: translateY(16px); }
+    to { opacity: 1; transform: translateY(0); }
 }

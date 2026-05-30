@@ -135,18 +135,23 @@ const skinContainer = document.getElementById('skin-container');
 const activeAccount = () => cfg.accounts.find(a => a.id === cfg.activeAccountId) || cfg.accounts[0];
 const activeProfile = () => cfg.profiles.find(p => p.id === cfg.activeProfileId) || cfg.profiles[0];
 
-const skinViewer = new skinview3d.SkinViewer({
-    canvas: document.createElement('canvas'),
-    width: 220, height: 340,
-    skin: 'https://mineskin.org/textures/8/a/8a39f041217642ac9719e7f256247f1f.png'
-});
-skinContainer.appendChild(skinViewer.canvas);
-skinViewer.animation = new skinview3d.IdleAnimation();
-skinViewer.controls.enableZoom = false;
+let skinViewer = null;
+try {
+    skinViewer = new skinview3d.SkinViewer({
+        canvas: document.createElement('canvas'),
+        width: 220, height: 340,
+        skin: 'https://mineskin.org/textures/8/a/8a39f041217642ac9719e7f256247f1f.png'
+    });
+    skinContainer.appendChild(skinViewer.canvas);
+    skinViewer.animation = new skinview3d.IdleAnimation();
+    skinViewer.controls.enableZoom = false;
+} catch (e) {
+    console.warn('[SKIN] Visor 3D no disponible:', e.message);
+}
 
 function reloadSkin() {
     const acc = activeAccount();
-    if (acc?.skinPath && fs.existsSync(acc.skinPath)) {
+    if (acc?.skinPath && fs.existsSync(acc.skinPath) && skinViewer) {
         skinViewer.loadSkin(`file://${acc.skinPath}`);
     }
 }
@@ -833,7 +838,7 @@ function escAttr(str) {
 // ─────────────────────────────────────────────
 // INIT
 // ─────────────────────────────────────────────
-navigate('view-main');
+try { navigate('view-main'); } catch (e) { console.error('[INIT] Error en navegación inicial:', e); }
 
 
 let allVanillaVersions = [];
@@ -1460,3 +1465,174 @@ navigate = function(viewId) {
 };
 
 initSettings();
+
+// ─────────────────────────────────────────────
+// WARDROBE — SKIN LIBRARY
+// ─────────────────────────────────────────────
+function renderWardrobe() {
+    const grid = document.getElementById('wardrobe-grid');
+    if (!grid) return;
+    const library = ipcRenderer.sendSync('get-skin-library');
+    if (!library || !library.length) {
+        grid.innerHTML = '<div class="empty-state">Aún no hay skins en tu armario. ¡Añade una!</div>';
+        return;
+    }
+    grid.innerHTML = '';
+    library.forEach(skin => {
+        const card = document.createElement('div');
+        card.className = 'wardrobe-card';
+        card.innerHTML = `
+            <div class="wardrobe-thumb" data-skin-path="${escAttr(skin.path)}">
+                <canvas width="64" height="64"></canvas>
+            </div>
+            <div class="wardrobe-name">${escHtml(skin.name)}</div>
+            <div class="wardrobe-actions">
+                <button class="wardrobe-apply-btn" data-skin-id="${skin.id}" title="Aplicar skin">${icon('check')}</button>
+                <button class="wardrobe-delete-btn" data-skin-id="${skin.id}" title="Eliminar">${icon('trash')}</button>
+            </div>`;
+        grid.appendChild(card);
+
+        // Render mini skin preview
+        const canvas = card.querySelector('canvas');
+        if (canvas && fs.existsSync(skin.path)) {
+            try {
+                const miniViewer = new skinview3d.SkinViewer({
+                    canvas,
+                    width: 64, height: 64,
+                    skin: `file://${skin.path}`
+                });
+                miniViewer.animation = new skinview3d.IdleAnimation();
+                miniViewer.controls.enableZoom = false;
+                miniViewer.controls.enableRotate = false;
+                // Store reference for cleanup
+                card._miniViewer = miniViewer;
+            } catch (e) {
+                console.error('[WARDROBE] Mini preview error:', e);
+            }
+        }
+    });
+}
+
+document.getElementById('wardrobe-add-btn')?.addEventListener('click', async () => {
+    const filePath = await ipcRenderer.invoke('open-skin-dialog');
+    if (!filePath) return;
+    const name = path.basename(filePath, '.png');
+    ipcRenderer.sendSync('add-skin-to-library', { name, source: 'local', skinPath: filePath });
+    renderWardrobe();
+});
+
+document.getElementById('wardrobe-nova-btn')?.addEventListener('click', () => {
+    shell.openExternal('https://minecraft.novaskin.me/skins');
+});
+
+document.addEventListener('click', (e) => {
+    const applyBtn = e.target.closest('.wardrobe-apply-btn');
+    if (applyBtn) {
+        const skinId = applyBtn.dataset.skinId;
+        const acc = activeAccount();
+        if (!acc) { showToast('No hay cuenta activa', 'error'); return; }
+        ipcRenderer.sendSync('apply-skin-from-library', { skinId, accountId: acc.id });
+        cfg = ipcRenderer.sendSync('get-config');
+        reloadSkin();
+        showToast('Skin aplicada a ' + acc.username, 'success');
+        return;
+    }
+    const deleteBtn = e.target.closest('.wardrobe-delete-btn');
+    if (deleteBtn) {
+        const skinId = deleteBtn.dataset.skinId;
+        if (!confirm('Eliminar esta skin del armario?')) return;
+        ipcRenderer.sendSync('remove-skin-from-library', { id: skinId });
+        renderWardrobe();
+        showToast('Skin eliminada', 'success');
+    }
+});
+
+// ─────────────────────────────────────────────
+// SOCIAL — LAN DISCOVERY
+// ─────────────────────────────────────────────
+function renderSocialPeers(peers) {
+    const list = document.getElementById('social-peer-list');
+    if (!list) return;
+    if (!peers || !peers.length) {
+        list.innerHTML = '<div class="empty-state">No se encontraron jugadores en la red local.</div>';
+        updateSocialBadge(0);
+        return;
+    }
+    list.innerHTML = '';
+    peers.forEach(peer => {
+        const card = document.createElement('div');
+        card.className = 'social-peer-card';
+        const timeAgo = Math.floor((Date.now() - peer.timestamp) / 1000);
+        const timeStr = timeAgo < 60 ? 'ahora' : `${Math.floor(timeAgo / 60)}m`;
+        card.innerHTML = `
+            <div class="social-peer-avatar">${icon('user')}</div>
+            <div class="social-peer-info">
+                <div class="social-peer-name">${escHtml(peer.username)}</div>
+                <div class="social-peer-meta">${escHtml(peer.version)} · ${peer.address}</div>
+            </div>
+            <div class="social-peer-time">${timeStr}</div>`;
+        list.appendChild(card);
+    });
+    updateSocialBadge(peers.length);
+}
+
+function updateSocialBadge(count) {
+    const badge = document.getElementById('social-badge');
+    if (!badge) return;
+    if (count > 0) {
+        badge.textContent = count;
+        badge.style.display = 'flex';
+    } else {
+        badge.style.display = 'none';
+    }
+}
+
+ipcRenderer.on('social-peers', (_, peers) => {
+    renderSocialPeers(peers);
+});
+
+// ─────────────────────────────────────────────
+// TOAST NOTIFICATIONS
+// ─────────────────────────────────────────────
+function showToast(message, type = 'success', duration = 2500) {
+    const existing = document.querySelector('.toast-notification');
+    if (existing) existing.remove();
+    const toast = document.createElement('div');
+    toast.className = `toast-notification toast-${type}`;
+    const iconName = type === 'success' ? 'toast-success' : 'toast-error';
+    toast.innerHTML = `<svg class="icon"><use href="#icon-${iconName}"/></svg> ${escHtml(message)}`;
+    document.body.appendChild(toast);
+    setTimeout(() => { toast.classList.add('toast-fade'); setTimeout(() => toast.remove(), 300); }, duration);
+}
+
+// ─────────────────────────────────────────────
+// SETTINGS — BEHAVIOR TOGGLES
+// ─────────────────────────────────────────────
+function loadBehaviorSettings() {
+    const cfgState = ipcRenderer.sendSync('get-config');
+    document.getElementById('toggle-minimize-tray').checked = cfgState.minimizeToTray !== false;
+    document.getElementById('toggle-suppress-updates').checked = cfgState.suppressUpdateNotifications === true;
+}
+
+document.getElementById('toggle-minimize-tray')?.addEventListener('change', (e) => {
+    ipcRenderer.send('set-minimize-to-tray', { value: e.target.checked });
+});
+
+document.getElementById('toggle-suppress-updates')?.addEventListener('change', (e) => {
+    ipcRenderer.send('set-suppress-updates', { value: e.target.checked });
+});
+
+// ─────────────────────────────────────────────
+// OVERRIDE NAVIGATE FOR NEW VIEWS
+// ─────────────────────────────────────────────
+const origNavigate3 = navigate;
+navigate = function(viewId) {
+    origNavigate3(viewId);
+    if (viewId === 'view-wardrobe') renderWardrobe();
+    if (viewId === 'view-social') {
+        renderSocialPeers(ipcRenderer.sendSync('get-social-peers'));
+    }
+    if (viewId === 'view-settings') {
+        loadBehaviorSettings();
+    }
+};

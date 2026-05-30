@@ -1,10 +1,11 @@
-const { app, BrowserWindow, ipcMain, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, Tray, Menu, nativeImage, Notification } = require('electron');
 const path = require('path');
 const { Client, Authenticator } = require('minecraft-launcher-core');
 const fs = require('fs');
 const http = require('http');
 const https = require('https');
 const crypto = require('crypto');
+const dgram = require('dgram');
 const { spawn } = require('child_process');
 const AdmZip = require('adm-zip');
 const { autoUpdater } = require('electron-updater');
@@ -47,7 +48,10 @@ function loadConfig() {
             }],
             activeProfileId: profileId,
             appVersion: '1.1.0',
-            cosmetics: { keystrokes: false, dynamicFov: true, damageTilt: true }
+            cosmetics: { keystrokes: false, dynamicFov: true, damageTilt: true },
+            skinLibrary: [],
+            minimizeToTray: true,
+            suppressUpdateNotifications: false
         };
         fs.writeFileSync(configPath, JSON.stringify(configCache, null, 2));
         return configCache;
@@ -77,10 +81,17 @@ function loadConfig() {
                 mods: []
             }],
             activeProfileId: profileId,
-            appVersion: '1.1.0'
+            appVersion: '1.1.0',
+            skinLibrary: [],
+            minimizeToTray: true,
+            suppressUpdateNotifications: false
         };
         fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2));
     }
+
+    if (!cfg.skinLibrary) cfg.skinLibrary = [];
+    if (cfg.minimizeToTray === undefined) cfg.minimizeToTray = true;
+    if (cfg.suppressUpdateNotifications === undefined) cfg.suppressUpdateNotifications = false;
 
     configCache = cfg;
     return cfg;
@@ -94,6 +105,9 @@ function saveConfig(cfg) {
 function invalidateConfig() {
     configCache = null;
 }
+
+let tray = null;
+let voidSocial = null;
 
 // ─────────────────────────────────────────────
 // VENTANA PRINCIPAL
@@ -112,16 +126,139 @@ function createWindow() {
         backgroundColor: '#0a0a0a'
     });
     win.loadFile('index.html');
+    return win;
+}
+
+// ─────────────────────────────────────────────
+// TRAY / BACKGROUND
+// ─────────────────────────────────────────────
+function setupTray(win) {
+    try {
+        const iconPath = path.join(__dirname, 'build', 'icon.png');
+        if (!fs.existsSync(iconPath)) return;
+        const icon = nativeImage.createFromPath(iconPath);
+        tray = new Tray(icon);
+        const contextMenu = Menu.buildFromTemplate([
+            {
+                label: 'Mostrar/Ocultar',
+                click: () => { if (win.isVisible()) win.hide(); else { win.show(); win.focus(); } }
+            },
+            { type: 'separator' },
+            { label: 'Salir', click: () => { tray = null; app.quit(); } }
+        ]);
+        tray.setToolTip('Void Launcher');
+        tray.setContextMenu(contextMenu);
+        tray.on('double-click', () => { win.show(); win.focus(); });
+        console.log('[TRAY] Icono creado');
+    } catch (e) { console.error('[TRAY] Error:', e); }
+}
+
+// ─────────────────────────────────────────────
+// VOID SOCIAL — LAN DISCOVERY
+// ─────────────────────────────────────────────
+class VoidSocial {
+    constructor() {
+        this.peers = [];
+        this.broadcastPort = 34292;
+        this.broadcastInterval = null;
+        this.server = null;
+    }
+
+    start(username) {
+        try {
+            this.server = dgram.createSocket('udp4');
+            this.server.on('error', err => console.error('[SOCIAL] Server error:', err));
+            this.server.on('message', (msg, rinfo) => {
+                try {
+                    const data = JSON.parse(msg.toString());
+                    if (data.type === 'void-social' && data.username !== username) {
+                        this.addOrUpdatePeer(data, rinfo.address);
+                    }
+                } catch { /* ignore malformed */ }
+            });
+            this.server.bind(this.broadcastPort, () => {
+                this.server.setBroadcast(true);
+                console.log('[SOCIAL] Escuchando en puerto', this.broadcastPort);
+            });
+
+            this.broadcastInterval = setInterval(() => {
+                const msg = JSON.stringify({
+                    type: 'void-social',
+                    username: username,
+                    version: app.getVersion(),
+                    timestamp: Date.now()
+                });
+                try {
+                    this.server.send(msg, 0, msg.length, this.broadcastPort, '255.255.255.255');
+                } catch (e) { /* ignore */ }
+            }, 5000);
+        } catch (e) { console.error('[SOCIAL] Start error:', e); }
+    }
+
+    stop() {
+        if (this.broadcastInterval) { clearInterval(this.broadcastInterval); this.broadcastInterval = null; }
+        if (this.server) { try { this.server.close(); } catch {} this.server = null; }
+    }
+
+    addOrUpdatePeer(data, address) {
+        const existing = this.peers.find(p => p.address === address);
+        if (existing) {
+            existing.timestamp = Date.now();
+            existing.username = data.username;
+            existing.version = data.version;
+        } else {
+            this.peers.push({
+                username: data.username,
+                version: data.version,
+                address: address,
+                timestamp: Date.now()
+            });
+        }
+        this.cleanupPeers();
+        this.broadcastToRenderers();
+    }
+
+    cleanupPeers() {
+        const now = Date.now();
+        this.peers = this.peers.filter(p => now - p.timestamp < 30000);
+    }
+
+    broadcastToRenderers() {
+        const wins = BrowserWindow.getAllWindows();
+        if (wins.length > 0) {
+            wins[0].webContents.send('social-peers', this.getPeers());
+        }
+    }
+
+    getPeers() { return JSON.parse(JSON.stringify(this.peers)); }
+}
+
+function startVoidSocial() {
+    try {
+        const cfg = loadConfig();
+        const acc = cfg.accounts?.find(a => a.id === cfg.activeAccountId) || cfg.accounts?.[0];
+        voidSocial = new VoidSocial();
+        voidSocial.start(acc?.username || 'Jugador');
+        console.log('[SOCIAL] LAN discovery iniciado');
+    } catch (e) { console.error('[SOCIAL] Init error:', e); }
 }
 
 app.whenReady().then(() => {
-    // �� Auto-updater ��
+    let mainWindow = createWindow();
+    setupTray(mainWindow);
+    startVoidSocial();
+
     autoUpdater.logger = console;
     autoUpdater.autoDownload = false;
     if (!app.isPackaged) autoUpdater.forceDevUpdateConfig = true;
-    const win = () => BrowserWindow.getFocusedWindow();
+    const win = () => BrowserWindow.getFocusedWindow() || mainWindow;
 
     autoUpdater.on('update-available', (info) => {
+        const cfg = loadConfig();
+        if (cfg.suppressUpdateNotifications) {
+            console.log('[UPDATER] Update suppressed by config');
+            return;
+        }
         // Send update info with formatted size
         const updateInfo = {
             ...info,
@@ -181,12 +318,30 @@ app.whenReady().then(() => {
 
     autoUpdater.checkForUpdates().catch(e => console.error('[UPDATER] Check error:', e));
 });
-app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
+app.on('before-quit', () => {
+    if (voidSocial) { voidSocial.stop(); voidSocial = null; }
+    if (tray) { tray.destroy(); tray = null; }
+});
+
+app.on('window-all-closed', () => {
+    if (tray && loadConfig().minimizeToTray) {
+        // Keep running in tray
+    } else {
+        if (process.platform !== 'darwin') app.quit();
+    }
+});
 
 // ─────────────────────────────────────────────
 // IPC — VENTANA
 // ─────────────────────────────────────────────
-ipcMain.on('close-app', () => app.quit());
+ipcMain.on('close-app', () => {
+    const cfg = loadConfig();
+    if (cfg.minimizeToTray && tray) {
+        BrowserWindow.getFocusedWindow()?.hide();
+    } else {
+        app.quit();
+    }
+});
 ipcMain.on('minimize-app', () => BrowserWindow.getFocusedWindow()?.minimize());
 ipcMain.on('get-userdata-path', (e) => { e.returnValue = userDataPath; });
 ipcMain.on('get-app-version', (e) => { e.returnValue = app.getVersion(); });
@@ -244,6 +399,90 @@ ipcMain.on('update-account-skin', (e, { id, skinPath }) => {
     const cfg = loadConfig();
     const acc = cfg.accounts.find(a => a.id === id);
     if (acc) acc.skinPath = skinPath;
+    saveConfig(cfg);
+    e.returnValue = true;
+});
+
+// ─────────────────────────────────────────────
+// IPC — SKIN LIBRARY
+// ─────────────────────────────────────────────
+ipcMain.on('get-skin-library', (e) => {
+    const cfg = loadConfig();
+    e.returnValue = cfg.skinLibrary || [];
+});
+
+ipcMain.on('add-skin-to-library', (e, { name, source, skinPath }) => {
+    const cfg = loadConfig();
+    const id = generateId();
+    if (!cfg.skinLibrary) cfg.skinLibrary = [];
+    cfg.skinLibrary.push({ id, name: name || 'Skin', source: source || 'local', path: skinPath, isActive: false });
+    saveConfig(cfg);
+    e.returnValue = cfg.skinLibrary;
+});
+
+ipcMain.on('remove-skin-from-library', (e, { id }) => {
+    const cfg = loadConfig();
+    if (cfg.skinLibrary) cfg.skinLibrary = cfg.skinLibrary.filter(s => s.id !== id);
+    saveConfig(cfg);
+    e.returnValue = true;
+});
+
+ipcMain.on('apply-skin-from-library', (e, { skinId, accountId }) => {
+    const cfg = loadConfig();
+    const skin = cfg.skinLibrary?.find(s => s.id === skinId);
+    if (!skin || !skin.path) { e.returnValue = false; return; }
+    const acc = cfg.accounts.find(a => a.id === accountId);
+    if (acc) acc.skinPath = skin.path;
+    cfg.skinLibrary.forEach(s => s.isActive = s.id === skinId);
+    saveConfig(cfg);
+    e.returnValue = true;
+});
+
+ipcMain.handle('download-nova-skin', async (_, { name, url }) => {
+    try {
+        const skinsDir = path.join(userDataPath, 'skins');
+        fs.mkdirSync(skinsDir, { recursive: true });
+        const safeName = name.replace(/[^a-zA-Z0-9_-]/g, '_') || 'skin';
+        const destPath = path.join(skinsDir, `${safeName}_${Date.now()}.png`);
+        const httpsMod = url.startsWith('https') ? https : http;
+        await new Promise((resolve, reject) => {
+            httpsMod.get(url, (res) => {
+                if (res.statusCode >= 300 && res.headers.location) {
+                    httpsMod.get(res.headers.location, (r2) => {
+                        const file = fs.createWriteStream(destPath);
+                        r2.pipe(file);
+                        file.on('finish', () => { file.close(); resolve(); });
+                    }).on('error', reject);
+                    return;
+                }
+                const file = fs.createWriteStream(destPath);
+                res.pipe(file);
+                file.on('finish', () => { file.close(); resolve(); });
+            }).on('error', reject);
+        });
+        return { success: true, path: destPath };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+});
+
+// ─────────────────────────────────────────────
+// IPC — SOCIAL
+// ─────────────────────────────────────────────
+ipcMain.on('get-social-peers', (e) => {
+    e.returnValue = voidSocial ? voidSocial.getPeers() : [];
+});
+
+ipcMain.on('set-minimize-to-tray', (e, { value }) => {
+    const cfg = loadConfig();
+    cfg.minimizeToTray = value;
+    saveConfig(cfg);
+    e.returnValue = true;
+});
+
+ipcMain.on('set-suppress-updates', (e, { value }) => {
+    const cfg = loadConfig();
+    cfg.suppressUpdateNotifications = value;
     saveConfig(cfg);
     e.returnValue = true;
 });
@@ -730,7 +969,7 @@ ipcMain.on('launch-game', async (event, { profileId }) => {
             activeInstances = Math.max(0, activeInstances - 1);
             console.log('[CLOSE] Instancia cerrada, activas:', activeInstances);
             const win = BrowserWindow.getAllWindows()[0];
-            if (win && !win.isVisible()) win.show();
+            if (win) { win.show(); win.focus(); }
             event.reply('launch-status', { type: 'close', data: code, instances: activeInstances });
         });
 
