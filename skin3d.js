@@ -143,8 +143,75 @@ function createSkinViewer(container, width, height) {
     }
     animate();
 
+    // ── COSMÉTICOS 3D ──
+    const cosmeticMeshes = {};
+    const cosmeticTexLoader = new THREE.TextureLoader();
+    cosmeticTexLoader.setCrossOrigin('anonymous');
+
+    function loadCosmeticTexture(key, url) {
+        if (cosmeticMeshes[key]) {
+            scene.remove(cosmeticMeshes[key]);
+            if (cosmeticMeshes[key].geometry) cosmeticMeshes[key].geometry.dispose();
+            if (cosmeticMeshes[key].material) cosmeticMeshes[key].material.dispose();
+            delete cosmeticMeshes[key];
+        }
+        if (!url) return;
+        cosmeticTexLoader.load(url, (tex) => {
+            tex.magFilter = THREE.NearestFilter;
+            tex.minFilter = THREE.NearestFilter;
+            const mat = new THREE.MeshLambertMaterial({ map: tex, transparent: true, alphaTest: 0.05 });
+            let mesh;
+            switch (key) {
+                case 'cape': {
+                    const geo = new THREE.PlaneGeometry(8, 12);
+                    mesh = new THREE.Mesh(geo, mat);
+                    mesh.position.set(0, 0, -2.5);
+                    break;
+                }
+                case 'hat': {
+                    const geo = new THREE.BoxGeometry(8.5, 8.5, 8.5);
+                    mesh = new THREE.Mesh(geo, mat);
+                    mesh.position.set(0, 10, 0);
+                    break;
+                }
+                case 'wings': {
+                    const leftMat = mat.clone();
+                    const leftGeo = new THREE.PlaneGeometry(10, 12);
+                    const rightGeo = new THREE.PlaneGeometry(10, 12);
+                    const leftWing = new THREE.Mesh(leftGeo, leftMat);
+                    const rightWing = new THREE.Mesh(rightGeo, mat);
+                    leftWing.position.set(-9, 2, 0);
+                    rightWing.position.set(9, 2, 0);
+                    leftWing.rotation.y = 0.3;
+                    rightWing.rotation.y = -0.3;
+                    const group = new THREE.Group();
+                    group.add(leftWing, rightWing);
+                    mesh = group;
+                    break;
+                }
+            }
+            if (mesh) {
+                character.add(mesh);
+                cosmeticMeshes[key] = mesh;
+            }
+        });
+    }
+
+    function setCosmeticTint(key, hexColor) {
+        const mesh = cosmeticMeshes[key];
+        if (!mesh) return;
+        const color = new THREE.Color(hexColor);
+        if (mesh.material) mesh.material.color = color;
+        else mesh.traverse(child => { if (child.material) child.material.color = color; });
+    }
+
+    window.__setCosmeticTexture = loadCosmeticTexture;
+    window.__setCosmeticTint = setCosmeticTint;
+
     return {
         loadSkin,
+        loadCosmetic: loadCosmeticTexture,
+        setCosmeticTint,
         destroy() {
             cancelAnimationFrame(animFrame);
             document.removeEventListener('visibilitychange', onVisibility);

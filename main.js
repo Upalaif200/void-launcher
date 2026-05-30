@@ -108,6 +108,7 @@ function invalidateConfig() {
 
 let tray = null;
 let voidSocial = null;
+global.activeInstancesCount = 0;
 
 // ─────────────────────────────────────────────
 // VENTANA PRINCIPAL
@@ -154,7 +155,7 @@ function setupTray(win) {
 }
 
 // ─────────────────────────────────────────────
-// VOID SOCIAL — LAN DISCOVERY
+// VOID SOCIAL — LAN DISCOVERY + CHAT + FRIENDS
 // ─────────────────────────────────────────────
 class VoidSocial {
     constructor() {
@@ -162,17 +163,42 @@ class VoidSocial {
         this.broadcastPort = 34292;
         this.broadcastInterval = null;
         this.server = null;
+        this.username = '';
+        this.chatHistory = {};
+        this.pendingRequests = [];
     }
 
     start(username) {
+        this.username = username;
         try {
             this.server = dgram.createSocket('udp4');
             this.server.on('error', err => console.error('[SOCIAL] Server error:', err));
             this.server.on('message', (msg, rinfo) => {
                 try {
                     const data = JSON.parse(msg.toString());
-                    if (data.type === 'void-social' && data.username !== username) {
-                        this.addOrUpdatePeer(data, rinfo.address);
+                    if (data.username === username) return;
+                    switch (data.type) {
+                        case 'void-social':
+                            this.addOrUpdatePeer(data, rinfo.address);
+                            break;
+                        case 'void-message':
+                            if (data.to === username) {
+                                if (!this.chatHistory[data.from]) this.chatHistory[data.from] = [];
+                                this.chatHistory[data.from].push({ from: data.from, text: data.text, ts: data.ts });
+                                this.broadcastToRenderers();
+                                if (global.activeInstancesCount === 0) {
+                                    this.notifyMessage(data.from, data.text);
+                                }
+                            }
+                            break;
+                        case 'void-friend-request':
+                            if (data.from !== username) {
+                                if (!this.pendingRequests.find(r => r.from === data.from)) {
+                                    this.pendingRequests.push({ from: data.from, ts: data.ts });
+                                    this.broadcastToRenderers();
+                                }
+                            }
+                            break;
                     }
                 } catch { /* ignore malformed */ }
             });
@@ -198,6 +224,43 @@ class VoidSocial {
     stop() {
         if (this.broadcastInterval) { clearInterval(this.broadcastInterval); this.broadcastInterval = null; }
         if (this.server) { try { this.server.close(); } catch {} this.server = null; }
+    }
+
+    sendMessage(toUsername, text) {
+        const msg = JSON.stringify({
+            type: 'void-message',
+            from: this.username,
+            to: toUsername,
+            text,
+            ts: Date.now()
+        });
+        try {
+            this.server.send(msg, 0, msg.length, this.broadcastPort, '255.255.255.255');
+        } catch (e) {}
+        if (!this.chatHistory[toUsername]) this.chatHistory[toUsername] = [];
+        this.chatHistory[toUsername].push({ from: this.username, text, ts: Date.now() });
+    }
+
+    sendFriendRequest(toUsername) {
+        const msg = JSON.stringify({
+            type: 'void-friend-request',
+            from: this.username,
+            ts: Date.now()
+        });
+        try {
+            this.server.send(msg, 0, msg.length, this.broadcastPort, '255.255.255.255');
+        } catch (e) {}
+    }
+
+    notifyMessage(from, text) {
+        try {
+            const n = new Notification({ title: from, body: text, icon: path.join(__dirname, 'build', 'icon.png') });
+            n.on('click', () => {
+                const wins = BrowserWindow.getAllWindows();
+                if (wins.length > 0) { wins[0].show(); wins[0].focus(); wins[0].webContents.send('open-social-drawer'); }
+            });
+            n.show();
+        } catch (e) {}
     }
 
     addOrUpdatePeer(data, address) {
@@ -471,6 +534,72 @@ ipcMain.handle('download-nova-skin', async (_, { name, url }) => {
 // ─────────────────────────────────────────────
 ipcMain.on('get-social-peers', (e) => {
     e.returnValue = voidSocial ? voidSocial.getPeers() : [];
+});
+
+ipcMain.on('toggle-social-drawer', (e, { open }) => {
+    const win = BrowserWindow.getAllWindows()[0];
+    if (!win) { e.returnValue = true; return; }
+    const [w, h] = win.getSize();
+    const targetW = open ? 1260 : 960;
+    win.setResizable(true);
+    win.setSize(targetW, h, true);
+    setTimeout(() => win.setResizable(false), 400);
+    e.returnValue = true;
+});
+
+ipcMain.on('send-chat-message', (e, { to, text }) => {
+    if (voidSocial) voidSocial.sendMessage(to, text);
+    e.returnValue = true;
+});
+
+ipcMain.on('get-chat-history', (e, { username }) => {
+    e.returnValue = voidSocial ? (voidSocial.chatHistory[username] || []) : [];
+});
+
+ipcMain.on('get-pending-friend-requests', (e) => {
+    e.returnValue = voidSocial ? voidSocial.pendingRequests : [];
+});
+
+ipcMain.on('send-friend-request', (e, { toUsername }) => {
+    if (voidSocial) voidSocial.sendFriendRequest(toUsername);
+    e.returnValue = true;
+});
+
+ipcMain.on('accept-friend-request', (e, { fromUsername }) => {
+    const cfgLocal = loadConfig();
+    if (!cfgLocal.friends) cfgLocal.friends = [];
+    if (!cfgLocal.friends.find(f => f.username === fromUsername)) {
+        cfgLocal.friends.push({ username: fromUsername, addedAt: Date.now() });
+        saveConfig(cfgLocal);
+    }
+    if (voidSocial) {
+        voidSocial.pendingRequests = voidSocial.pendingRequests.filter(r => r.from !== fromUsername);
+    }
+    e.returnValue = true;
+});
+
+ipcMain.on('get-friends-list', (e) => {
+    const cfgLocal = loadConfig();
+    const friends = cfgLocal.friends || [];
+    const peers = voidSocial ? voidSocial.getPeers() : [];
+    const enriched = friends.map(f => ({
+        ...f,
+        online: peers.some(p => p.username === f.username),
+        inGame: false
+    }));
+    e.returnValue = enriched;
+});
+
+ipcMain.on('save-cosmetics-3d', (e, cosmetics3d) => {
+    const cfgLocal = loadConfig();
+    cfgLocal.cosmetics3d = cosmetics3d;
+    saveConfig(cfgLocal);
+    e.returnValue = true;
+});
+
+ipcMain.on('get-cosmetics-3d', (e) => {
+    const cfgLocal = loadConfig();
+    e.returnValue = cfgLocal.cosmetics3d || { cape: null, hat: null, wings: null };
 });
 
 ipcMain.on('set-minimize-to-tray', (e, { value }) => {
@@ -959,6 +1088,7 @@ ipcMain.on('launch-game', async (event, { profileId }) => {
         // Crear una instancia nueva por lanzamiento (multi-instancia)
         const instanceLauncher = new Client();
         activeInstances++;
+        global.activeInstancesCount = activeInstances;
         event.reply('launch-status', { type: 'instances', data: activeInstances });
 
         instanceLauncher.launch(opts);
@@ -967,6 +1097,7 @@ ipcMain.on('launch-game', async (event, { profileId }) => {
         instanceLauncher.on('progress', e => event.reply('launch-status', { type: 'progress', data: e }));
         instanceLauncher.on('close', (code) => {
             activeInstances = Math.max(0, activeInstances - 1);
+            global.activeInstancesCount = activeInstances;
             console.log('[CLOSE] Instancia cerrada, activas:', activeInstances);
             const win = BrowserWindow.getAllWindows()[0];
             if (win) { win.show(); win.focus(); }

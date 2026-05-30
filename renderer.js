@@ -1590,6 +1590,12 @@ function updateSocialBadge(count) {
 
 ipcRenderer.on('social-peers', (_, peers) => {
     renderSocialPeers(peers);
+    if (socialDrawerOpen) {
+        refreshFriendsList();
+        if (activeChatFriend && socialDrawerOpen) {
+            renderChatMessages(activeChatFriend);
+        }
+    }
 });
 
 // ─────────────────────────────────────────────
@@ -1624,12 +1630,335 @@ document.getElementById('toggle-suppress-updates')?.addEventListener('change', (
 });
 
 // ─────────────────────────────────────────────
+// CAJÓN SOCIAL DERECHO
+// ─────────────────────────────────────────────
+let socialDrawerOpen = false;
+let activeChatFriend = null;
+let unreadCounts = {};
+
+const socialDrawer = document.getElementById('social-drawer');
+const socialToggleBtn = document.getElementById('social-drawer-toggle');
+const unreadBadge = document.getElementById('social-unread-badge');
+
+function toggleSocialDrawer(forceOpen) {
+    const shouldOpen = forceOpen !== undefined ? forceOpen : !socialDrawerOpen;
+    socialDrawerOpen = shouldOpen;
+    if (shouldOpen) {
+        socialDrawer.classList.add('open');
+        try { ipcRenderer.sendSync('toggle-social-drawer', { open: true }); } catch (e) {}
+        refreshSocialDrawer();
+    } else {
+        socialDrawer.classList.remove('open');
+        try { ipcRenderer.sendSync('toggle-social-drawer', { open: false }); } catch (e) {}
+    }
+}
+
+socialToggleBtn.addEventListener('click', () => toggleSocialDrawer());
+
+ipcRenderer.on('open-social-drawer', () => { toggleSocialDrawer(true); });
+
+document.querySelectorAll('.social-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+        document.querySelectorAll('.social-tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.social-tab-content').forEach(p => p.classList.remove('active'));
+        tab.classList.add('active');
+        const panel = document.getElementById(tab.dataset.socialTab);
+        if (panel) panel.classList.add('active');
+        if (tab.dataset.socialTab === 'tab-friends') refreshFriendsList();
+        if (tab.dataset.socialTab === 'tab-requests') refreshRequestsList();
+    });
+});
+
+function refreshSocialDrawer() {
+    refreshFriendsList();
+    refreshRequestsList();
+    updateUnreadBadge();
+}
+
+function updateUnreadBadge() {
+    const total = Object.values(unreadCounts).reduce((a, b) => a + b, 0);
+    unreadBadge.textContent = total;
+    unreadBadge.style.display = total > 0 ? 'flex' : 'none';
+}
+
+function refreshFriendsList() {
+    const friends = ipcRenderer.sendSync('get-friends-list');
+    const peers = ipcRenderer.sendSync('get-social-peers');
+    const container = document.getElementById('drawer-friends-list');
+    if (!container) return;
+
+    if (!friends.length && !peers.length) {
+        container.innerHTML = '<div class="empty-state" style="padding:20px;font-size:11px;">Sin amigos aún. Jugadores en tu red local aparecen abajo.</div>';
+        return;
+    }
+
+    container.innerHTML = '';
+
+    friends.forEach(friend => {
+        const online = friend.online || peers.some(p => p.username === friend.username);
+        const status = online ? 'online' : 'offline';
+        const statusText = online ? '🟢 En línea' : '⚫ Desconectado';
+        const unread = unreadCounts[friend.username] || 0;
+        const div = document.createElement('div');
+        div.className = 'drawer-friend-item';
+        div.innerHTML = `
+            <div class="drawer-friend-avatar">
+                <svg class="icon" style="width:14px;height:14px;"><use href="#icon-user"/></svg>
+                <span class="drawer-friend-status-dot ${status}"></span>
+            </div>
+            <div class="drawer-friend-info">
+                <div class="drawer-friend-name">${escHtml(friend.username)}${unread > 0 ? ' <span style="background:#ef4444;color:#fff;font-size:9px;padding:1px 4px;border-radius:4px;">' + unread + '</span>' : ''}</div>
+                <div class="drawer-friend-state">${statusText}</div>
+            </div>
+            <button class="drawer-friend-chat-btn" onclick="openDrawerChat('${escAttr(friend.username)}')" title="Chat"><svg class="icon" style="width:13px;height:13px;"><use href="#icon-message"/></svg></button>`;
+        container.appendChild(div);
+    });
+
+    peers.filter(p => !friends.find(f => f.username === p.username)).forEach(peer => {
+        const div = document.createElement('div');
+        div.className = 'drawer-friend-item';
+        div.style.opacity = '0.6';
+        div.innerHTML = `
+            <div class="drawer-friend-avatar">
+                <svg class="icon" style="width:14px;height:14px;"><use href="#icon-user"/></svg>
+                <span class="drawer-friend-status-dot online"></span>
+            </div>
+            <div class="drawer-friend-info">
+                <div class="drawer-friend-name">${escHtml(peer.username)}</div>
+                <div class="drawer-friend-state" style="font-size:9px;">Red local</div>
+            </div>
+            <button class="drawer-friend-chat-btn" onclick="drawerSendFriendRequestTo('${escAttr(peer.username)}')" title="Añadir amigo"><svg class="icon" style="width:12px;height:12px;"><use href="#icon-plus"/></svg></button>`;
+        container.appendChild(div);
+    });
+}
+
+function refreshRequestsList() {
+    const requests = ipcRenderer.sendSync('get-pending-friend-requests');
+    const container = document.getElementById('drawer-requests-list');
+    const badge = document.getElementById('requests-badge');
+    if (!container) return;
+    badge.textContent = requests.length;
+    badge.style.display = requests.length > 0 ? 'inline-flex' : 'none';
+    if (!requests.length) {
+        container.innerHTML = '<div class="empty-state" style="padding:20px;font-size:11px;">Sin solicitudes.</div>';
+        return;
+    }
+    container.innerHTML = '';
+    requests.forEach(req => {
+        const div = document.createElement('div');
+        div.className = 'drawer-friend-item';
+        div.innerHTML = `
+            <div class="drawer-friend-avatar"><svg class="icon" style="width:14px;height:14px;"><use href="#icon-user"/></svg></div>
+            <div class="drawer-friend-info">
+                <div class="drawer-friend-name">${escHtml(req.from)}</div>
+                <div class="drawer-friend-state" style="font-size:9px;">Quiere ser tu amigo</div>
+            </div>
+            <button class="drawer-friend-chat-btn" onclick="acceptFriendRequest('${escAttr(req.from)}')" title="Aceptar" style="background:rgba(34,197,94,0.15);border-color:rgba(34,197,94,0.3);color:#22c55e;"><svg class="icon" style="width:13px;height:13px;"><use href="#icon-check"/></svg></button>`;
+        container.appendChild(div);
+    });
+}
+
+// CHAT
+window.openDrawerChat = function(username) {
+    activeChatFriend = username;
+    unreadCounts[username] = 0;
+    updateUnreadBadge();
+    refreshFriendsList();
+    document.getElementById('drawer-chat-name').textContent = username;
+    const peers = ipcRenderer.sendSync('get-social-peers');
+    const online = peers.some(p => p.username === username);
+    const statusDot = document.getElementById('drawer-chat-status');
+    statusDot.className = 'drawer-chat-status-dot' + (online ? ' online' : '');
+    renderChatMessages(username);
+    document.getElementById('drawer-chat-panel').style.display = 'flex';
+    setTimeout(() => document.getElementById('drawer-chat-input').focus(), 50);
+};
+
+window.closeDrawerChat = function() {
+    activeChatFriend = null;
+    document.getElementById('drawer-chat-panel').style.display = 'none';
+};
+
+function renderChatMessages(username) {
+    const messages = ipcRenderer.sendSync('get-chat-history', { username });
+    const container = document.getElementById('drawer-chat-messages');
+    if (!container) return;
+    const myName = cfg.accounts.find(a => a.id === cfg.activeAccountId)?.username || '';
+    container.innerHTML = '';
+    if (!messages.length) {
+        container.innerHTML = '<div style="color:var(--text3);font-size:11px;text-align:center;padding:20px;">Inicia la conversación con ' + escHtml(username) + '</div>';
+        return;
+    }
+    messages.forEach(msg => {
+        const isMine = msg.from === myName;
+        const time = new Date(msg.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        const div = document.createElement('div');
+        div.className = 'chat-msg ' + (isMine ? 'mine' : 'theirs');
+        div.innerHTML = escHtml(msg.text) + '<div class="chat-msg-meta">' + (isMine ? 'Tú' : escHtml(msg.from)) + ' · ' + time + '</div>';
+        container.appendChild(div);
+    });
+    container.scrollTop = container.scrollHeight;
+}
+
+window.sendDrawerMessage = function() {
+    if (!activeChatFriend) return;
+    const input = document.getElementById('drawer-chat-input');
+    const text = input.value.trim();
+    if (!text) return;
+    ipcRenderer.sendSync('send-chat-message', { to: activeChatFriend, text });
+    input.value = '';
+    renderChatMessages(activeChatFriend);
+};
+
+window.drawerSendFriendRequest = function() {
+    const input = document.getElementById('drawer-friend-input');
+    const username = input.value.trim();
+    if (!username) return;
+    ipcRenderer.sendSync('send-friend-request', { toUsername: username });
+    input.value = '';
+    showToast('Solicitud enviada a ' + username, 'success');
+};
+
+window.drawerSendFriendRequestTo = function(username) {
+    ipcRenderer.sendSync('send-friend-request', { toUsername: username });
+    showToast('Solicitud enviada a ' + username, 'success');
+};
+
+window.acceptFriendRequest = function(fromUsername) {
+    ipcRenderer.sendSync('accept-friend-request', { fromUsername });
+    cfg = ipcRenderer.sendSync('get-config');
+    refreshRequestsList();
+    refreshFriendsList();
+    showToast(fromUsername + ' añadido a tus amigos', 'success');
+};
+
+// ─────────────────────────────────────────────
+// COSMÉTICOS 3D EN EL ARMARIO
+// ─────────────────────────────────────────────
+let cosmetics3d = ipcRenderer.sendSync('get-cosmetics-3d');
+let cosmeticTints = { cape: '#ffffff', hat: '#ffffff', wings: '#ffffff' };
+
+const COSMETIC_LABELS = {
+    cape: { emoji: '\u{1F6B8}', label: 'Capa', sub: 'Plano detrás del torso' },
+    hat: { emoji: '\u{1F3A9}', label: 'Sombrero', sub: 'Overlay en la cabeza' },
+    wings: { emoji: '\u{1FABD}', label: 'Alas', sub: 'Paneles en los hombros' }
+};
+
+function renderCosmeticsPanel() {
+    let panel = document.getElementById('cosmetics-panel');
+    if (panel) { updateCosmeticSlots(); return; }
+    const wardrobeSection = document.getElementById('view-wardrobe');
+    if (!wardrobeSection) return;
+    panel = document.createElement('div');
+    panel.id = 'cosmetics-panel';
+    panel.className = 'cosmetics-slots-panel';
+    panel.style.marginTop = '16px';
+    panel.innerHTML = `
+        <h3>\u{1F3A8} Cosméticos 3D</h3>
+        <p style="font-size:10px;color:var(--text2);margin-bottom:12px;">Capa, sombrero y alas visibles en el visor 3D del launcher.</p>
+        ${['cape','hat','wings'].map(key => {
+            const info = COSMETIC_LABELS[key];
+            const hasCos = cosmetics3d[key];
+            return '<div class="cosmetic-slot ' + (hasCos ? 'has-cosmetic' : '') + '" id="slot-' + key + '" onclick="openCosmeticPicker(\'' + key + '\')">' +
+                '<div class="cosmetic-slot-icon">' + info.emoji + '</div>' +
+                '<div class="cosmetic-slot-info">' +
+                '<div class="cosmetic-slot-name">' + info.label + '</div>' +
+                '<div class="cosmetic-slot-sub">' + (hasCos ? '\u2713 Activo' : info.sub) + '</div></div>' +
+                (hasCos ? '<button class="cosmetic-slot-remove" onclick="removeCosmetic(event,\'' + key + '\')">\u00d7</button>' : '') + '</div>';
+        }).join('')}
+        <div class="cosmetic-tint-row"><label>Tinte de capa</label><input type="color" id="cape-tint" value="${cosmeticTints.cape}" onchange="applyCosmeticTint('cape',this.value)"></div>
+        <div class="outfit-presets"><h4>Presets de outfit</h4><div class="outfit-preset-list"><button class="outfit-preset-btn" onclick="saveOutfitPreset()">+ Guardar</button><div id="preset-list"></div></div></div>`;
+    wardrobeSection.appendChild(panel);
+    loadOutfitPresets();
+}
+
+function updateCosmeticSlots() {
+    ['cape','hat','wings'].forEach(key => {
+        const slot = document.getElementById('slot-' + key);
+        if (!slot) return;
+        const hasCos = !!cosmetics3d[key];
+        slot.className = 'cosmetic-slot ' + (hasCos ? 'has-cosmetic' : '');
+        const sub = slot.querySelector('.cosmetic-slot-sub');
+        if (sub) sub.textContent = hasCos ? '\u2713 Activo' : COSMETIC_LABELS[key].sub;
+        const existing = slot.querySelector('.cosmetic-slot-remove');
+        if (hasCos && !existing) {
+            const btn = document.createElement('button');
+            btn.className = 'cosmetic-slot-remove';
+            btn.innerHTML = '\u00d7';
+            btn.onclick = (e) => removeCosmetic(e, key);
+            slot.appendChild(btn);
+        } else if (!hasCos && existing) {
+            existing.remove();
+        }
+    });
+}
+
+window.openCosmeticPicker = async (slotKey) => {
+    const filePath = await ipcRenderer.invoke('open-skin-dialog');
+    if (!filePath) return;
+    cosmetics3d[slotKey] = filePath;
+    ipcRenderer.sendSync('save-cosmetics-3d', cosmetics3d);
+    updateCosmeticSlots();
+    applyCosmeticTo3DViewer(slotKey, filePath);
+    showToast(COSMETIC_LABELS[slotKey].label + ' aplicado', 'success');
+};
+
+window.removeCosmetic = (e, slotKey) => {
+    e.stopPropagation();
+    cosmetics3d[slotKey] = null;
+    ipcRenderer.sendSync('save-cosmetics-3d', cosmetics3d);
+    updateCosmeticSlots();
+    applyCosmeticTo3DViewer(slotKey, null);
+    showToast(COSMETIC_LABELS[slotKey].label + ' eliminado', 'success');
+};
+
+window.applyCosmeticTint = (slotKey, color) => {
+    cosmeticTints[slotKey] = color;
+    if (window.__setCosmeticTint) window.__setCosmeticTint(slotKey, color);
+};
+
+function applyCosmeticTo3DViewer(slotKey, texturePath) {
+    if (window.__setCosmeticTexture) {
+        window.__setCosmeticTexture(slotKey, texturePath ? 'file://' + texturePath : null);
+    }
+}
+
+function saveOutfitPreset() {
+    const name = prompt('Nombre del preset:');
+    if (!name) return;
+    const presets = JSON.parse(localStorage.getItem('voidOutfitPresets') || '[]');
+    presets.push({ name, cosmetics: { ...cosmetics3d }, tints: { ...cosmeticTints }, ts: Date.now() });
+    localStorage.setItem('voidOutfitPresets', JSON.stringify(presets));
+    loadOutfitPresets();
+    showToast('Preset "' + name + '" guardado', 'success');
+}
+
+function loadOutfitPresets() {
+    const list = document.getElementById('preset-list');
+    if (!list) return;
+    const presets = JSON.parse(localStorage.getItem('voidOutfitPresets') || '[]');
+    list.innerHTML = presets.map((p, i) => '<button class="outfit-preset-btn" onclick="applyOutfitPreset(' + i + ')">' + escHtml(p.name) + '</button>').join('');
+}
+
+window.applyOutfitPreset = (i) => {
+    const presets = JSON.parse(localStorage.getItem('voidOutfitPresets') || '[]');
+    const preset = presets[i];
+    if (!preset) return;
+    cosmetics3d = { ...preset.cosmetics };
+    cosmeticTints = { ...preset.tints };
+    ipcRenderer.sendSync('save-cosmetics-3d', cosmetics3d);
+    updateCosmeticSlots();
+    ['cape','hat','wings'].forEach(k => applyCosmeticTo3DViewer(k, cosmetics3d[k]));
+    showToast('Outfit "' + preset.name + '" aplicado', 'success');
+};
+
+// ─────────────────────────────────────────────
 // OVERRIDE NAVIGATE FOR NEW VIEWS
 // ─────────────────────────────────────────────
 const origNavigate3 = navigate;
 navigate = function(viewId) {
     origNavigate3(viewId);
-    if (viewId === 'view-wardrobe') renderWardrobe();
+    if (viewId === 'view-wardrobe') { renderWardrobe(); renderCosmeticsPanel(); }
     if (viewId === 'view-social') {
         renderSocialPeers(ipcRenderer.sendSync('get-social-peers'));
     }
@@ -1637,3 +1966,6 @@ navigate = function(viewId) {
         loadBehaviorSettings();
     }
 };
+
+// Initialize unread badge on load
+updateUnreadBadge();
