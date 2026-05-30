@@ -25,14 +25,14 @@ public class ScoreboardModule extends HudModule {
         var level = mc.level;
         if (level == null) return;
 
-        var sb = level.getScoreboard();
-        Objective obj = sb.getDisplayObjective(DisplaySlot.SIDEBAR);
+        var scoreboard = level.getScoreboard();
+        Objective obj = scoreboard.getDisplayObjective(DisplaySlot.SIDEBAR);
         if (obj == null) return;
 
         var font = mc.font;
         gg.drawString(font, obj.getDisplayName().getString(), x, y, 0xFFFFFF);
 
-        var all = new ArrayList<>(sb.listPlayerScores(obj));
+        var all = new ArrayList<>(scoreboard.listPlayerScores(obj));
         all.sort(SCORE_CMP);
         int limit = Math.min(all.size(), 5);
         var sb = new StringBuilder(32);

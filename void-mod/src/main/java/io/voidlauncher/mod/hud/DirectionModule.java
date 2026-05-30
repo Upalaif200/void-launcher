@@ -17,6 +17,9 @@ public class DirectionModule extends HudModule {
         float yaw = player.getYRot() % 360;
         if (yaw < 0) yaw += 360;
         int idx = ((int) ((yaw + 22.5) / 45)) & 7;
+        // Ensure index is within bounds [0,7] to prevent ArrayIndexOutOfBoundsException
+        if (idx < 0) idx = 0;
+        if (idx >= 8) idx = 7;
         String dir = DIRECTIONS[idx];
         gg.drawString(Minecraft.getInstance().font, dir, x, y, color);
     }
