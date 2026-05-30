@@ -215,7 +215,7 @@ class ModUpdater {
           case 'update':
             fs.mkdirSync(path.dirname(filePath), { recursive: true });
             await this.downloadFile(
-              updateInfo.baseUrl + fileInfo.path,
+              updateInfo.baseUrl + (fileInfo.assetName || fileInfo.path),
               filePath,
               (downloaded, total) => {
                 if (onProgress) {

@@ -121,6 +121,7 @@ async function generateManifest() {
           
           manifest.files.push({
             path: relativePath,
+            assetName: relativePath.replace(/\//g, '.'),
             sha256: hash,
             size: size,
             action: action
@@ -156,6 +157,7 @@ async function generateManifest() {
       
       manifest.files.push({
         path: dest,
+        assetName: dest.replace(/\//g, '.'),
         sha256: hash,
         size: size,
         action: action
