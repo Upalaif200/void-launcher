@@ -13,7 +13,7 @@
       "assets/**/*",
       "build/icon.png",
       "build/icon.ico",
-      "src/**/*"
+      "mod-updater.js"
     ],
     "nsis": {
       "perMachine": false,

@@ -150,7 +150,7 @@ app.whenReady().then(() => {
     });
 
     // Mod updater setup
-    const { modUpdater } = require("./src/updater/mod-updater");
+    const { modUpdater } = require("./mod-updater");
 
     // Check for mod updates on startup
     modUpdater.checkAndApplyUpdates((progress) => {
