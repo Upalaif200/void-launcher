@@ -81,5 +81,5 @@
     "electron-builder": "^26.8.1"
   },
   "repository": "Upalaif200/void-launcher",
-  "version": "1.2.3"
+  "version": "1.2.4"
 }

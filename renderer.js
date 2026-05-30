@@ -1645,10 +1645,12 @@ function toggleSocialDrawer(forceOpen) {
     socialDrawerOpen = shouldOpen;
     if (shouldOpen) {
         socialDrawer.classList.add('open');
+        document.body.classList.add('social-drawer-open');
         try { ipcRenderer.sendSync('toggle-social-drawer', { open: true }); } catch (e) {}
         refreshSocialDrawer();
     } else {
         socialDrawer.classList.remove('open');
+        document.body.classList.remove('social-drawer-open');
         try { ipcRenderer.sendSync('toggle-social-drawer', { open: false }); } catch (e) {}
     }
 }

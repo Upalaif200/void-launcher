@@ -365,6 +365,11 @@ body {
     overflow: hidden;
     position: relative;
     background: transparent;
+    max-width: 904px;
+}
+
+body.social-drawer-open .main-area {
+    max-width: 904px;
 }
 
 /* ── VIEWS ── */
