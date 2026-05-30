@@ -1,38 +1,6 @@
 {
-  "name": "void-launcher",
-  "version": "1.0.9",
-  "description": "Launcher creado con el propósito de, aparte de Jugar al Minecraft, jugar con la seguridad de que no hay ningún tipo de Malware.",
   "author": "UP",
-  "repository": "Upalaif200/void-launcher",
-  "main": "main.js",
-  "scripts": {
-    "start": "electron .",
-    "build": "electron-builder --win",
-    "publish": "electron-builder --win --publish always",
-    "postinstall": "node scripts/generate-icon.js"
-  },
   "build": {
-    "appId": "com.voidlauncher.app",
-    "productName": "Void-Launcher",
-    "asar": false,
-    "directories": {
-      "output": "dist"
-    },
-    "electronDist": "node_modules/electron/dist",
-    "win": {
-      "icon": "build/icon.ico",
-      "target": "nsis"
-    },
-    "nsis": {
-      "oneClick": true,
-      "perMachine": false,
-      "allowToChangeInstallationDirectory": false,
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true,
-      "shortcutName": "Void-Launcher",
-      "installerIcon": "build/icon.ico",
-      "uninstallerIcon": "build/icon.ico"
-    },
     "files": [
       "main.js",
       "background.js",
@@ -44,36 +12,73 @@
       "node_modules/**/*",
       "assets/**/*",
       "build/icon.png",
-      "build/icon.ico"
+      "build/icon.ico",
+      "src/**/*"
     ],
-    "afterPack": "scripts/after-pack.js",
-    "extraResources": [
-      "authlib-injector.jar",
-      {
-        "from": "void-mod/build/libs/",
-        "to": "mods/",
-        "filter": ["keystrokes-1.0.0.jar"]
-      }
-    ],
+    "nsis": {
+      "perMachine": false,
+      "installerIcon": "build/icon.ico",
+      "createDesktopShortcut": true,
+      "differentialPackage": true,
+      "createStartMenuShortcut": true,
+      "allowToChangeInstallationDirectory": false,
+      "uninstallerIcon": "build/icon.ico",
+      "shortcutName": "Void-Launcher",
+      "oneClick": false
+    },
+    "electronDist": "node_modules/electron/dist",
+    "appId": "com.voidlauncher.app",
     "publish": [
       {
-        "provider": "github",
         "owner": "Upalaif200",
+        "provider": "github",
         "repo": "void-launcher"
       }
-    ]
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "build/icon.ico"
+    },
+    "directories": {
+      "output": "dist"
+    },
+    "extraResources": [
+      {
+        "filter": [
+          "keystrokes-1.0.0.jar"
+        ],
+        "to": "mods/",
+        "from": "void-mod/build/libs/"
+      }
+    ],
+    "productName": "Void-Launcher",
+    "afterPack": "scripts/after-pack.js",
+    "asar": true
   },
   "dependencies": {
     "adm-zip": "^0.5.16",
     "app-builder-bin": "^4.0.0",
-    "electron-updater": "^6.6.2",
     "minecraft-launcher-core": "^3.18.2",
+    "electron-updater": "^6.6.2",
     "skinview3d": "^3.4.1"
   },
+  "main": "main.js",
+  "scripts": {
+    "release": "node scripts/release.js",
+    "postinstall": "node scripts/generate-icon.js",
+    "generate-manifest": "node scripts/generate-manifest.js",
+    "build": "electron-builder --win",
+    "start": "electron .",
+    "publish": "electron-builder --win --publish always"
+  },
+  "name": "void-launcher",
+  "description": "Launcher creado con el propósito de, aparte de Jugar al Minecraft, jugar con la seguridad de que no hay ningún tipo de Malware.",
   "devDependencies": {
-    "electron": "^40.6.1",
-    "electron-builder": "^26.8.1",
     "png-to-ico": "^3.0.1",
-    "sharp": "^0.34.5"
-  }
+    "electron": "^40.6.1",
+    "sharp": "^0.34.5",
+    "electron-builder": "^26.8.1"
+  },
+  "repository": "Upalaif200/void-launcher",
+  "version": "1.1.0"
 }

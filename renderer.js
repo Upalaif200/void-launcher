@@ -59,12 +59,52 @@ ipcRenderer.on('update-progress', (_, prog) => {
     showUpdateProgress(Math.round(prog.percent), prog.bytesPerSecond);
 });
 
+function showModUpdateProgress(progress) {
+    const percent = progress.percent || 0;
+    const actionText = {
+        add: 'Agregando',
+        update: 'Actualizando',
+        delete: 'Eliminando'
+    }[progress.action] || 'Procesando';
+    const fileName = progress.path.split('/').pop();
+    updateNotification.style.display = 'flex';
+    updateProgressBar.style.display = 'block';
+    updateProgressFill.style.width = `${percent}%`;
+    updateProgressText.textContent = `${actionText} ${fileName}... ${percent}%`;
+}
+
+function showModUpdateStatus(status) {
+    if (!status.success) {
+        showUpdateNotification(`Error: ${status.message}`);
+        setTimeout(() => {
+            hideUpdateNotification();
+        }, 5000);
+        return;
+    }
+
+    updateNotification.style.display = 'flex';
+    updateProgressBar.style.display = 'none';
+    updateProgressFill.style.width = '100%';
+    updateProgressText.textContent = status.message;
+    setTimeout(() => {
+        hideUpdateNotification();
+    }, 3000);
+}
+
 ipcRenderer.on('update-downloaded', () => {
     updateProgressFill.style.width = '100%';
     updateProgressText.textContent = 'Descarga completada. Instalando...';
     setTimeout(() => {
         ipcRenderer.send('install-update');
     }, 500);
+});
+
+ipcRenderer.on('mod-update-progress', (_, progress) => {
+    showModUpdateProgress(progress);
+});
+
+ipcRenderer.on('mod-update-status', (_, status) => {
+    showModUpdateStatus(status);
 });
 
 ipcRenderer.on('update-not-available', () => {

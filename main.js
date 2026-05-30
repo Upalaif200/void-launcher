@@ -115,27 +115,56 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
-    createWindow();
-
-    // ── Auto-updater ──
+    // �� Auto-updater ��
     autoUpdater.logger = console;
     autoUpdater.autoDownload = false;
     if (!app.isPackaged) autoUpdater.forceDevUpdateConfig = true;
     const win = () => BrowserWindow.getFocusedWindow();
 
     autoUpdater.on('update-available', (info) => {
-        win()?.webContents.send('update-available', info);
+        // Send update info with formatted size
+        const updateInfo = {
+            ...info,
+            releaseNotes: info.releaseNotes || '',
+            size: info.fileSize ? `${(info.fileSize / 1048576).toFixed(1)} MB` : 'Unknown size'
+        };
+        win()?.webContents.send('update-available', updateInfo);
     });
     autoUpdater.on('update-not-available', () => {
         win()?.webContents.send('update-not-available');
         console.log('[UPDATER] No update available');
     });
     autoUpdater.on('download-progress', (prog) => {
-        win()?.webContents.send('update-progress', prog);
+        // Send progress with percentage and formatted bytes
+        const progressInfo = {
+            ...prog,
+            percent: prog.percent || 0,
+            transferred: `${(prog.transferred / 1048576).toFixed(1)} MB`,
+            total: `${(prog.total / 1048576).toFixed(1)} MB`,
+            speed: `${(prog.bytesPerSecond / 1048576).toFixed(1)} MB/s`
+        };
+        win()?.webContents.send('update-progress', progressInfo);
     });
     autoUpdater.on('update-downloaded', () => {
         win()?.webContents.send('update-downloaded');
     });
+
+    // Mod updater setup
+    const { modUpdater } = require("./src/updater/mod-updater");
+
+    // Check for mod updates on startup
+    modUpdater.checkAndApplyUpdates((progress) => {
+        win()?.webContents.send("mod-update-progress", progress);
+    }).then(result => {
+        if (result.success) {
+            console.log("[ModUpdater] Update check completed:", result.message);
+            win()?.webContents.send("mod-update-status", { success: true, message: result.message });
+        } else {
+            console.error("[ModUpdater] Update check failed:", result.message);
+            win()?.webContents.send("mod-update-status", { success: false, message: result.message });
+        }
+    });
+
 
     ipcMain.on('start-update', async () => {
         try {
@@ -145,6 +174,7 @@ app.whenReady().then(() => {
             win()?.webContents.send('update-error', String(e));
         }
     });
+
     ipcMain.on('install-update', () => {
         autoUpdater.quitAndInstall(false, true);
     });
