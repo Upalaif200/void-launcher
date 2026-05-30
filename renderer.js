@@ -5,7 +5,8 @@
 const { ipcRenderer, shell } = require('electron');
 const fs = require('fs');
 const path = require('path');
-const skinview3d = require('skinview3d');
+let skinview3d;
+try { skinview3d = require('skinview3d'); } catch (e) { console.warn('[RENDERER] skinview3d no disponible:', e.message); }
 const os = require('os');
 
 // ─────────────────────────────────────────────

@@ -1,0 +1,189 @@
+name: Build & Release
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+    types: [closed]
+
+permissions:
+  contents: write
+
+jobs:
+  determine-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      type: ${{ steps.version.outputs.type }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+      force-update: ${{ steps.version.outputs.force-update }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Determine version bump type
+        id: version
+        shell: bash
+        run: |
+          EVENT_NAME="${{ github.event_name }}"
+          PR_MERGED="${{ github.event.pull_request.merged }}"
+
+          if [ "$EVENT_NAME" = "pull_request" ] && [ "$PR_MERGED" != "true" ]; then
+            echo "PR not merged — skipping release"
+            exit 0
+          fi
+
+          MAJOR_KEYWORDS="breaking|major|BREAKING"
+          MINOR_KEYWORDS="feat|feature|minor"
+          PATCH_KEYWORDS="fix|patch|chore|docs|refactor|perf|test"
+
+          if [ "$EVENT_NAME" = "push" ]; then
+            COMMIT_MSG="${{ github.event.head_commit.message }}"
+          else
+            COMMIT_MSG="${{ github.event.pull_request.title }}"
+          fi
+
+          if echo "$COMMIT_MSG" | grep -iqE "^$MAJOR_KEYWORDS"; then
+            TYPE="major"
+            FORCE="true"
+          elif echo "$COMMIT_MSG" | grep -iqE "^$MINOR_KEYWORDS"; then
+            TYPE="minor"
+            FORCE="false"
+          elif echo "$COMMIT_MSG" | grep -iqE "^$PATCH_KEYWORDS"; then
+            TYPE="patch"
+            FORCE="true"
+          else
+            TYPE="patch"
+            FORCE="false"
+          fi
+
+          # Read current version
+          CURRENT=$(node -p "require('./package.json').version")
+          IFS='.' read -ra PARTS <<< "$CURRENT"
+          MAJOR="${PARTS[0]}"
+          MINOR="${PARTS[1]}"
+          PATCH="${PARTS[2]}"
+
+          case "$TYPE" in
+            major)
+              MAJOR=$((MAJOR + 1))
+              MINOR=0
+              PATCH=0
+              ;;
+            minor)
+              MINOR=$((MINOR + 1))
+              PATCH=0
+              ;;
+            patch)
+              PATCH=$((PATCH + 1))
+              ;;
+          esac
+
+          NEW_VERSION="${MAJOR}.${MINOR}.${PATCH}"
+          echo "version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
+          echo "type=$TYPE" >> "$GITHUB_OUTPUT"
+          echo "force-update=$FORCE" >> "$GITHUB_OUTPUT"
+
+          if [ "$TYPE" = "major" ]; then
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  build-and-release:
+    needs: determine-version
+    if: ${{ needs.determine-version.outputs.version != '' }}
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '23'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Bump version
+        shell: pwsh
+        run: |
+          $ver = "${{ needs.determine-version.outputs.version }}"
+          $json = Get-Content package.json -Raw | ConvertFrom-Json
+          $json.version = $ver
+          $json | ConvertTo-Json -Depth 10 | Set-Content package.json
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git add package.json
+          git commit -m "chore: bump version to $ver"
+          git tag "v$ver"
+
+      - name: Build app
+        run: npm run build
+
+      - name: Generate manifest
+        run: node scripts/generate-manifest.js
+
+      - name: Prepare release assets
+        shell: pwsh
+        run: |
+          $ver = "${{ needs.determine-version.outputs.version }}"
+          $dist = "dist"
+          Copy-Item "$dist/Void-Launcher Setup $ver.exe" "$dist/Void-Launcher-Setup-$ver.exe" -Force
+          Copy-Item "$dist/Void-Launcher Setup $ver.exe.blockmap" "$dist/Void-Launcher-Setup-$ver.exe.blockmap" -Force
+
+      - name: Create GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $ver = "${{ needs.determine-version.outputs.version }}"
+          $type = "${{ needs.determine-version.outputs.type }}"
+          $force = "${{ needs.determine-version.outputs.force-update }}"
+          $prerelease = "${{ needs.determine-version.outputs.prerelease }}"
+
+          switch ($type) {
+            "major"   { $notes = "## v$ver - Major Release`n`nThis is a major update with breaking changes." }
+            "minor"   { $notes = "## v$ver - Minor Release`n`nNew features and improvements." }
+            "patch"   { $notes = "## v$ver - Patch Release`n`nBug fixes and stability improvements." }
+          }
+
+          if ($force -eq "true") {
+            $notes += "`n`n**⚠️ This update is recommended for all users.**"
+          }
+
+          $isPrerelease = if ($prerelease -eq "true") { $true } else { $false }
+
+          gh release create "v$ver" `
+            --title "v$ver" `
+            --notes $notes `
+            --repo $env:GITHUB_REPOSITORY `
+            --prerelease:$isPrerelease
+
+      - name: Upload release assets
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $ver = "${{ needs.determine-version.outputs.version }}"
+          $dist = "dist"
+          gh release upload "v$ver" `
+            "$dist/Void-Launcher-Setup-$ver.exe" `
+            "$dist/Void-Launcher-Setup-$ver.exe.blockmap" `
+            "$dist/latest.yml" `
+            "$dist/manifest.json" `
+            --repo $env:GITHUB_REPOSITORY `
+            --clobber
+
+      - name: Push version bump commit and tag
+        run: |
+          git push origin master
+          git push origin "v${{ needs.determine-version.outputs.version }}"

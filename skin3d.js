@@ -2,7 +2,8 @@
 // Sin dependencias externas problemáticas, todo en un archivo
 
 function createSkinViewer(container, width, height) {
-    const THREE = require('three');
+    let THREE;
+    try { THREE = require('three'); } catch (e) { console.warn('[SKIN3D] THREE.js no disponible:', e.message); return null; }
 
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x1a1a2e);
