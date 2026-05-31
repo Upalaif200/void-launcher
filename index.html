@@ -54,6 +54,9 @@
         <symbol id="icon-toast-success" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></symbol>
         <symbol id="icon-toast-error" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></symbol>
         <symbol id="icon-message" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></symbol>
+        <symbol id="icon-game" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 12h4M8 10v4"/><circle cx="16" cy="10" r="1"/><circle cx="16" cy="14" r="1"/></symbol>
+        <symbol id="icon-activity" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></symbol>
+        <symbol id="icon-send" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></symbol>
     </svg>
 
     <!-- BARRA DE TÍTULO -->
@@ -110,7 +113,7 @@
         <!-- SIDEBAR DE NAVEGACIÓN -->
         <nav class="sidebar">
             <button class="nav-btn active" data-view="view-main" title="Inicio"><svg class="icon"><use href="#icon-home"/></svg></button>
-            <button class="nav-btn" data-view="view-accounts" title="Cuentas"><svg class="icon"><use href="#icon-user"/></svg></button>
+            <button class="nav-btn" data-view="view-accounts" title="Nicknames"><svg class="icon"><use href="#icon-user"/></svg></button>
             <button class="nav-btn" data-view="view-wardrobe" title="Armario de Skins"><svg class="icon"><use href="#icon-shirt"/></svg></button>
             <button class="nav-btn" data-view="view-profiles" title="Versiones"><svg class="icon"><use href="#icon-gamepad"/></svg></button>
             <button class="nav-btn" data-view="view-mods" title="Mods"><svg class="icon"><use href="#icon-wrench"/></svg></button>
@@ -139,15 +142,15 @@
                             <p id="main-subtitle">Elige un perfil y empieza a jugar.</p>
                         </div>
 
-                        <!-- Cuenta activa -->
+                        <!-- Nickname activo -->
                         <div class="panel-card account-card">
                             <div id="main-account-avatar" class="account-avatar"><svg class="icon icon-lg"><use href="#icon-user"/></svg></div>
                             <div class="account-info">
-                                <span class="label-small">CUENTA ACTIVA</span>
+                                <span class="label-small">NICKNAME ACTIVO</span>
                                 <span id="main-account-name" class="account-name-big">Jugador</span>
                             </div>
                             <button class="icon-action-btn" data-view="view-accounts"
-                                title="Gestionar cuentas"><svg class="icon"><use href="#icon-gear"/></svg></button>
+                                title="Gestionar nicknames"><svg class="icon"><use href="#icon-gear"/></svg></button>
                         </div>
 
                         <!-- Versión activa -->
@@ -212,21 +215,21 @@
             </section>
 
             <!-- ══════════════════════════════════════ -->
-            <!-- VISTA: CUENTAS                         -->
+            <!-- VISTA: NICKNAMES                      -->
             <!-- ══════════════════════════════════════ -->
             <section id="view-accounts" class="view">
                 <div class="view-header-inline">
-                    <h1>CUENTAS</h1>
-                    <p>Administra tus usuarios. Cada cuenta tiene su propia skin.</p>
+                    <h1>NICKNAMES</h1>
+                    <p>Son los nombres que aparecen dentro del juego. El nombre de tu cuenta en Neon es con el que otros te buscan para agregarte como amigo.</p>
                 </div>
 
-                <!-- Añadir cuenta -->
+                <!-- Añadir nickname -->
                 <div class="add-row">
-                    <input type="text" id="new-account-input" placeholder="Nombre de usuario..." maxlength="16">
+                    <input type="text" id="new-account-input" placeholder="Nombre dentro del juego..." maxlength="16">
                     <button id="add-account-btn" class="primary-btn">+ Añadir</button>
                 </div>
 
-                <!-- Lista de cuentas -->
+                <!-- Lista de nicknames -->
                 <div id="accounts-list" class="cards-grid"></div>
             </section>
 
@@ -236,12 +239,13 @@
             <section id="view-wardrobe" class="view">
                 <div class="view-header-inline">
                     <h1><svg class="icon"><use href="#icon-shirt"/></svg> ARMARIO DE SKINS</h1>
-                    <p>Gestiona tu colección de skins. Selecciona una skin para aplicarla a la cuenta activa.</p>
+                    <p>Gestiona tu colección de skins. Selecciona una skin para aplicarla al nickname activo.</p>
                 </div>
 
                 <div class="wardrobe-actions">
                     <button id="wardrobe-add-btn" class="primary-btn"><svg class="icon"><use href="#icon-plus"/></svg> Añadir Skin</button>
-                    <button id="wardrobe-nova-btn" class="secondary-btn"><svg class="icon"><use href="#icon-palette"/></svg> Nova Skin</button>
+                    <button onclick="openSkinEditor()" class="primary-btn" style="background:linear-gradient(135deg,#7c3aed,#a855f7);"><svg class="icon"><use href="#icon-palette"/></svg> Editor</button>
+                    <button id="wardrobe-nova-btn" class="secondary-btn"><svg class="icon"><use href="#icon-external-link"/></svg> Nova Skin</button>
                 </div>
 
                 <div id="wardrobe-grid" class="wardrobe-grid">
@@ -552,14 +556,112 @@
             <!-- ══════════════════════════════════════ -->
             <!-- VISTA: LAN SOCIAL                     -->
             <!-- ══════════════════════════════════════ -->
-            <section id="view-social" class="view">
-                <div class="view-header-inline">
-                    <h1><svg class="icon"><use href="#icon-users"/></svg> LAN SOCIAL</h1>
-                    <p>Descubre otros jugadores de Void Launcher en tu red local.</p>
-                </div>
+            <section id="view-social" class="view" style="padding:0;">
+                <div class="social-layout">
+                    <!-- Sidebar -->
+                    <div class="social-sidebar">
+                        <div class="social-profile-card">
+                            <div class="social-avatar" id="social-my-avatar"><svg class="icon"><use href="#icon-user"/></svg></div>
+                            <div class="social-username" id="social-my-name">Cargando...</div>
+                            <div class="social-status-badge" id="social-my-status">
+                                <span class="status-dot offline"></span>
+                                <span class="status-text">Desconectado</span>
+                            </div>
+                        </div>
+                        <div class="social-nav">
+                            <button class="social-nav-btn active" data-panel="friends">
+                                <svg class="icon"><use href="#icon-users"/></svg> Amigos
+                                <span class="social-count" id="friends-count-badge" style="display:none">0</span>
+                            </button>
+                            <button class="social-nav-btn" data-panel="chat">
+                                <svg class="icon"><use href="#icon-message"/></svg> Chat
+                                <span class="social-count" id="chat-unread-badge" style="display:none">0</span>
+                            </button>
+                            <button class="social-nav-btn" data-panel="invitations">
+                                <svg class="icon"><use href="#icon-link"/></svg> Invitaciones
+                                <span class="social-count" id="invitations-badge" style="display:none">0</span>
+                            </button>
+                            <button class="social-nav-btn" data-panel="activity">
+                                <svg class="icon"><use href="#icon-activity"/></svg> Actividad
+                            </button>
+                        </div>
+                        <div class="social-bridge-info" id="social-bridge-info">
+                            <span class="bridge-dot offline" id="cloud-status-dot"></span>
+                            <span class="bridge-text" id="cloud-status-text">Neon DB: Desconectado</span>
+                        </div>
+            <button class="social-logout-btn" onclick="socialLogout()">
+                <svg class="icon" style="width:12px;height:12px;"><use href="#icon-x"/></svg> Cerrar sesión
+            </button>
+            <button class="social-delete-btn" onclick="deleteSocialAccount()">
+                <svg class="icon" style="width:12px;height:12px;"><use href="#icon-trash"/></svg> Eliminar cuenta
+            </button>
+        </div>
 
-                <div id="social-peer-list" class="social-peer-list">
-                    <div class="empty-state">Buscando jugadores en la red local...</div>
+                    <!-- Main Panels -->
+                    <div class="social-main">
+                        <!-- Amigos -->
+                        <div id="panel-friends" class="social-panel active">
+                            <div class="social-panel-header">
+                                <h2>Amigos</h2>
+                                <div class="social-add-friend" style="position:relative;">
+                                    <input type="text" id="social-friend-search" placeholder="Buscar o añadir amigo..." maxlength="32">
+                                    <button id="social-add-friend-btn" class="primary-btn" style="padding:6px 12px;font-size:12px;" title="Añadir amigo"><svg class="icon"><use href="#icon-plus"/></svg></button>
+                                    <div id="social-search-results" class="search-results-dropdown"></div>
+                                </div>
+                            </div>
+                            <div id="social-friends-list" class="social-friends-list">
+                                <div class="empty-state">Inicia sesión para ver tus amigos.</div>
+                            </div>
+                        </div>
+
+                        <!-- Chat -->
+                        <div id="panel-chat" class="social-panel">
+                            <div class="chat-layout">
+                                <div id="chat-conversations" class="chat-conversations">
+                                    <div class="chat-conv-header">Conversaciones</div>
+                                    <div id="chat-conv-list" class="chat-conv-list">
+                                        <div class="empty-state" style="padding:12px;font-size:11px;">Aún no tienes conversaciones.</div>
+                                    </div>
+                                </div>
+                                <div id="chat-area" class="chat-area" style="display:none;">
+                                    <div class="chat-area-header">
+                                        <div class="chat-area-user">
+                                            <span class="status-dot" id="chat-area-status-dot"></span>
+                                            <span id="chat-area-name">Selecciona un amigo</span>
+                                        </div>
+                                    </div>
+                                    <div id="chat-area-messages" class="chat-area-messages">
+                                        <div class="empty-state">Selecciona una conversación para empezar a chatear.</div>
+                                    </div>
+                                    <div class="chat-area-input">
+                                        <input type="text" id="chat-area-input-field" placeholder="Escribe un mensaje..." maxlength="500" disabled>
+                                        <button id="chat-area-send-btn" class="primary-btn" disabled><svg class="icon"><use href="#icon-message"/></svg></button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Invitaciones -->
+                        <div id="panel-invitations" class="social-panel">
+                            <div class="social-panel-header">
+                                <h2>Invitaciones</h2>
+                            </div>
+                            <div id="social-invitations-list" class="social-friends-list">
+                                <div class="empty-state">No tienes invitaciones pendientes.</div>
+                            </div>
+                        </div>
+
+                        <!-- Actividad -->
+                        <div id="panel-activity" class="social-panel">
+                            <div class="social-panel-header">
+                                <h2>Actividad reciente</h2>
+                            </div>
+                            <div id="social-activity-feed" class="social-friends-list">
+                                <div class="empty-state">Aún no hay actividad para mostrar.</div>
+                            </div>
+                        </div>
+
+                    </div>
                 </div>
             </section>
 
@@ -600,6 +702,11 @@
                                 <span>Suprimir notificaciones de actualización</span>
                                 <input type="checkbox" id="toggle-suppress-updates">
                             </label>
+                        </div>
+                        <div class="settings-social-config">
+                            <h3>Social Cloud</h3>
+                            <p>Conectado a Neon para chat, amigos y llamadas entre redes.</p>
+                            <div id="social-connection-status" style="font-size:11px;color:var(--text2);margin-top:6px;"></div>
                         </div>
                     </div>
 
@@ -647,45 +754,60 @@
         </div>
     </div>
 
-    <!-- CAJÓN SOCIAL DERECHO -->
-    <div id="social-drawer" class="social-drawer">
-        <button id="social-drawer-toggle" class="social-drawer-toggle" title="Social">
-            <svg class="icon" id="social-toggle-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <polyline points="15 18 9 12 15 6"/>
-            </svg>
-            <span id="social-unread-badge" class="social-unread-badge" style="display:none">0</span>
-        </button>
-        <div class="social-drawer-panel">
-            <div class="social-drawer-header">
-                <span class="social-drawer-title"><svg class="icon"><use href="#icon-users"/></svg> SOCIAL</span>
-                <button class="social-settings-btn" onclick="navigate('view-social')" title="Ver todos los peers"><svg class="icon"><use href="#icon-gear"/></svg></button>
-            </div>
-            <div class="social-tabs">
-                <button class="social-tab active" data-social-tab="tab-friends">Amigos</button>
-                <button class="social-tab" data-social-tab="tab-requests">Solicitudes<span id="requests-badge" class="requests-badge" style="display:none">0</span></button>
-            </div>
-            <div id="tab-friends" class="social-tab-content active">
-                <div id="drawer-friends-list" class="drawer-friends-list"><div class="empty-state" style="padding:20px;font-size:11px;">Sin amigos aún. Jugadores en tu red local aparecen abajo.</div></div>
-                <div class="drawer-add-friend">
-                    <input type="text" id="drawer-friend-input" placeholder="Nombre de usuario..." maxlength="16">
-                    <button onclick="drawerSendFriendRequest()" class="secondary-btn" style="padding:6px 10px;font-size:12px;">+</button>
+    <!-- LOGIN OVERLAY -->
+    <div id="login-overlay" class="login-overlay" style="display:none;">
+        <div class="login-box">
+            <div class="login-header">
+                <div class="app-logo" style="margin-bottom:8px;">
+                    <svg width="32" height="32" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg" style="display:block;margin:0 auto;">
+                        <polygon points="9,2.5 15.5,9 9,15.5 2.5,9" stroke="#8844ee" stroke-width="1.2" fill="none" opacity="0.7"/>
+                        <polygon points="9,5.5 12.5,9 9,12.5 5.5,9" stroke="#c8a8ff" stroke-width="1" fill="none" opacity="0.85"/>
+                        <circle cx="9" cy="2.5" r="1" fill="#a055ff" opacity="0.6"/>
+                        <circle cx="15.5" cy="9" r="1" fill="#a055ff" opacity="0.6"/>
+                        <circle cx="9" cy="15.5" r="1" fill="#a055ff" opacity="0.6"/>
+                        <circle cx="2.5" cy="9" r="1" fill="#a055ff" opacity="0.6"/>
+                    </svg>
                 </div>
+                <h2 class="login-title">VOID LAUNCHER</h2>
+                <p class="login-subtitle">Inicia sesión para usar las funciones sociales</p>
             </div>
-            <div id="tab-requests" class="social-tab-content">
-                <div id="drawer-requests-list" class="drawer-friends-list"></div>
+            <div class="login-tabs">
+                <button class="login-tab active" data-login-tab="signin">Iniciar Sesión</button>
+                <button class="login-tab" data-login-tab="signup">Crear Cuenta</button>
+                <button class="login-tab" data-login-tab="guest">Invitado</button>
             </div>
-            <div id="drawer-chat-panel" class="drawer-chat-panel" style="display:none;">
-                <div class="drawer-chat-header">
-                    <button onclick="closeDrawerChat()" class="drawer-chat-back"><svg class="icon"><use href="#icon-arrow-up"/></svg></button>
-                    <span id="drawer-chat-name">PlayerName</span>
-                    <span id="drawer-chat-status" class="drawer-chat-status-dot"></span>
+            <div id="login-tab-signin" class="login-tab-content active">
+                <div class="form-group">
+                    <label>Nombre de usuario</label>
+                    <input type="text" id="login-signin-username" placeholder="Tu nombre en Neon..." maxlength="24">
                 </div>
-                <div id="drawer-chat-messages" class="drawer-chat-messages"></div>
-                <div class="drawer-chat-input-row">
-                    <input type="text" id="drawer-chat-input" placeholder="Mensaje..." maxlength="200" onkeydown="if(event.key==='Enter') sendDrawerMessage()">
-                    <button onclick="sendDrawerMessage()" class="primary-btn" style="padding:6px 12px;"><svg class="icon"><use href="#icon-message"/></svg></button>
+                <div class="form-group">
+                    <label>Contraseña</label>
+                    <input type="password" id="login-signin-password" placeholder="Contraseña">
                 </div>
+                <div id="login-signin-error" class="login-error"></div>
+                <button id="login-signin-btn" class="primary-btn" style="width:100%;">Iniciar Sesión</button>
             </div>
+            <div id="login-tab-signup" class="login-tab-content">
+                <div class="form-group">
+                    <label>Nombre de usuario</label>
+                    <input type="text" id="login-signup-username" placeholder="Elige un nombre..." maxlength="24">
+                </div>
+                <div class="form-group">
+                    <label>Contraseña</label>
+                    <input type="password" id="login-signup-password" placeholder="Mínimo 4 caracteres">
+                </div>
+                <div id="login-signup-error" class="login-error"></div>
+                <button id="login-signup-btn" class="primary-btn" style="width:100%;">Crear Cuenta</button>
+            </div>
+            <div id="login-tab-guest" class="login-tab-content">
+                <p style="color:var(--text2);font-size:13px;text-align:center;margin-bottom:12px;">
+                    Juega sin crear una cuenta. Tu perfil expirará en 24 horas.
+                </p>
+                <div id="login-guest-error" class="login-error"></div>
+                <button id="login-guest-btn" class="secondary-btn" style="width:100%;">Entrar como Invitado</button>
+            </div>
+            <div id="login-db-status" style="display:none;"></div>
         </div>
     </div>
 

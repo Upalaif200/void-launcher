@@ -1,14 +1,27 @@
-const { app, BrowserWindow, ipcMain, dialog, Tray, Menu, nativeImage, Notification } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, Tray, Menu, nativeImage, Notification, globalShortcut } = require('electron');
 const path = require('path');
 const { Client, Authenticator } = require('minecraft-launcher-core');
 const fs = require('fs');
 const http = require('http');
 const https = require('https');
 const crypto = require('crypto');
-const dgram = require('dgram');
-const { spawn } = require('child_process');
+const child_process = require('child_process');
+const readline = require('readline');
 const AdmZip = require('adm-zip');
 const { autoUpdater } = require('electron-updater');
+const SocialDB = require('./social-db');
+const SocialManager = require('./social-manager');
+const NotificationManager = require('./notification-manager');
+const P2PEngine = require('./p2p-engine');
+const P2PBridge = require('./p2p-bridge');
+
+process.on('uncaughtException', (err) => {
+  console.error('[CRASH] uncaughtException:', err);
+});
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[CRASH] unhandledRejection en:', promise, 'razón:', reason);
+});
+
 
 // ─────────────────────────────────────────────
 // RUTAS PERSISTENTES
@@ -107,8 +120,14 @@ function invalidateConfig() {
 }
 
 let tray = null;
-let voidSocial = null;
+let mainWindow = null;
+let socialDb = null;
+let socialManager = null;
+let socialPollInterval = null;
+let notificationManager = null;
 global.activeInstancesCount = 0;
+const activeProcesses = new Map(); // userId → { proc, state, version, presenceInterval }
+const activeBridges = new Map(); // sessionId → { engine, bridge }
 
 // ─────────────────────────────────────────────
 // VENTANA PRINCIPAL
@@ -154,165 +173,678 @@ function setupTray(win) {
     } catch (e) { console.error('[TRAY] Error:', e); }
 }
 
-// ─────────────────────────────────────────────
-// VOID SOCIAL — LAN DISCOVERY + CHAT + FRIENDS
-// ─────────────────────────────────────────────
-class VoidSocial {
-    constructor() {
-        this.peers = [];
-        this.broadcastPort = 34292;
-        this.broadcastInterval = null;
-        this.server = null;
-        this.username = '';
-        this.chatHistory = {};
-        this.pendingRequests = [];
-    }
+// ── Neon connection (hardcoded — users never see this) ──
+const NEON_DB_URL = 'postgresql://user:password@ep-nameless-cherry-acuxeh1m-pooler.sa-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require';
 
-    start(username) {
-        this.username = username;
-        try {
-            this.server = dgram.createSocket('udp4');
-            this.server.on('error', err => console.error('[SOCIAL] Server error:', err));
-            this.server.on('message', (msg, rinfo) => {
-                try {
-                    const data = JSON.parse(msg.toString());
-                    if (data.username === username) return;
-                    switch (data.type) {
-                        case 'void-social':
-                            this.addOrUpdatePeer(data, rinfo.address);
-                            break;
-                        case 'void-message':
-                            if (data.to === username) {
-                                if (!this.chatHistory[data.from]) this.chatHistory[data.from] = [];
-                                this.chatHistory[data.from].push({ from: data.from, text: data.text, ts: data.ts });
-                                this.broadcastToRenderers();
-                                if (global.activeInstancesCount === 0) {
-                                    this.notifyMessage(data.from, data.text);
-                                }
-                            }
-                            break;
-                        case 'void-friend-request':
-                            if (data.from !== username) {
-                                if (!this.pendingRequests.find(r => r.from === data.from)) {
-                                    this.pendingRequests.push({ from: data.from, ts: data.ts });
-                                    this.broadcastToRenderers();
-                                }
-                            }
-                            break;
-                    }
-                } catch { /* ignore malformed */ }
-            });
-            this.server.bind(this.broadcastPort, () => {
-                this.server.setBroadcast(true);
-                console.log('[SOCIAL] Escuchando en puerto', this.broadcastPort);
-            });
-
-            this.broadcastInterval = setInterval(() => {
-                const msg = JSON.stringify({
-                    type: 'void-social',
-                    username: username,
-                    version: app.getVersion(),
-                    timestamp: Date.now()
-                });
-                try {
-                    this.server.send(msg, 0, msg.length, this.broadcastPort, '255.255.255.255');
-                } catch (e) { /* ignore */ }
-            }, 5000);
-        } catch (e) { console.error('[SOCIAL] Start error:', e); }
-    }
-
-    stop() {
-        if (this.broadcastInterval) { clearInterval(this.broadcastInterval); this.broadcastInterval = null; }
-        if (this.server) { try { this.server.close(); } catch {} this.server = null; }
-    }
-
-    sendMessage(toUsername, text) {
-        const msg = JSON.stringify({
-            type: 'void-message',
-            from: this.username,
-            to: toUsername,
-            text,
-            ts: Date.now()
-        });
-        try {
-            this.server.send(msg, 0, msg.length, this.broadcastPort, '255.255.255.255');
-        } catch (e) {}
-        if (!this.chatHistory[toUsername]) this.chatHistory[toUsername] = [];
-        this.chatHistory[toUsername].push({ from: this.username, text, ts: Date.now() });
-    }
-
-    sendFriendRequest(toUsername) {
-        const msg = JSON.stringify({
-            type: 'void-friend-request',
-            from: this.username,
-            ts: Date.now()
-        });
-        try {
-            this.server.send(msg, 0, msg.length, this.broadcastPort, '255.255.255.255');
-        } catch (e) {}
-    }
-
-    notifyMessage(from, text) {
-        try {
-            const n = new Notification({ title: from, body: text, icon: path.join(__dirname, 'build', 'icon.png') });
-            n.on('click', () => {
-                const wins = BrowserWindow.getAllWindows();
-                if (wins.length > 0) { wins[0].show(); wins[0].focus(); wins[0].webContents.send('open-social-drawer'); }
-            });
-            n.show();
-        } catch (e) {}
-    }
-
-    addOrUpdatePeer(data, address) {
-        const existing = this.peers.find(p => p.address === address);
-        if (existing) {
-            existing.timestamp = Date.now();
-            existing.username = data.username;
-            existing.version = data.version;
-        } else {
-            this.peers.push({
-                username: data.username,
-                version: data.version,
-                address: address,
-                timestamp: Date.now()
-            });
-        }
-        this.cleanupPeers();
-        this.broadcastToRenderers();
-    }
-
-    cleanupPeers() {
-        const now = Date.now();
-        this.peers = this.peers.filter(p => now - p.timestamp < 30000);
-    }
-
-    broadcastToRenderers() {
-        const wins = BrowserWindow.getAllWindows();
-        if (wins.length > 0) {
-            wins[0].webContents.send('social-peers', this.getPeers());
-        }
-    }
-
-    getPeers() { return JSON.parse(JSON.stringify(this.peers)); }
+// Session persistence
+function getSessionPath() {
+    return path.join(userDataPath, 'session.json');
+}
+function saveSession(session) {
+    fs.writeFileSync(getSessionPath(), JSON.stringify(session, null, 2), 'utf8');
+}
+function loadSession() {
+    try { return JSON.parse(fs.readFileSync(getSessionPath(), 'utf8')); } catch { return null; }
+}
+function deleteSession() {
+    try { fs.unlinkSync(getSessionPath()); } catch {}
 }
 
-function startVoidSocial() {
+// ─────────────────────────────────────────────
+// SOCIAL MANAGER — CLOUD DB (Neon)
+// ─────────────────────────────────────────────
+function startSocialManager(connectionString) {
     try {
-        const cfg = loadConfig();
-        const acc = cfg.accounts?.find(a => a.id === cfg.activeAccountId) || cfg.accounts?.[0];
-        voidSocial = new VoidSocial();
-        voidSocial.start(acc?.username || 'Jugador');
-        console.log('[SOCIAL] LAN discovery iniciado');
-    } catch (e) { console.error('[SOCIAL] Init error:', e); }
+        socialDb = new SocialDB();
+        const res = socialDb.connect(connectionString);
+        if (!res.success) { console.error('[SOCIAL] Connection error:', res.error); return false; }
+
+        // Run schema migration
+        socialDb.migrateSchema().catch(e => console.warn('[SOCIAL] Schema migration:', e.message));
+
+        // Clean up expired guest accounts
+        socialDb.deleteExpiredGuests().then(rows => {
+            if (rows.length > 0) console.log('[SOCIAL] Expired guests cleaned:', rows.length);
+        }).catch(e => console.error('[SOCIAL] Guest cleanup error:', e));
+        // Periodic guest cleanup every hour
+        setInterval(() => {
+            socialDb.deleteExpiredGuests().catch(() => {});
+        }, 3600000);
+
+        notificationManager = new NotificationManager();
+        socialManager = new SocialManager();
+        socialManager.db = socialDb; // share the same DB instance
+        socialManager.startHeartbeat();
+        socialManager.startPolling((event) => {
+            if (event.type === 'pending-requests') {
+                broadcastSocialState();
+            }
+            if (event.type === 'game-invites') {
+                broadcastSocialState();
+                for (const inv of event.data) {
+                    if (notificationManager) {
+                        notificationManager.show('invitation:new', {
+                            fromUsername: inv.from_username,
+                            worldName: inv.world_name || 'jugar'
+                        });
+                    }
+                }
+            }
+        });
+        startSocialPolling(socialManager);
+        console.log('[SOCIAL] Cloud social manager iniciado');
+        return true;
+    } catch (e) { console.error('[SOCIAL] Init error:', e); return false; }
+}
+
+function stopSocialManager() {
+    if (socialManager) { socialManager.stop(); socialManager = null; }
+    if (socialPollInterval) { clearInterval(socialPollInterval); socialPollInterval = null; }
+    if (socialDb) { socialDb.close(); socialDb = null; }
+}
+
+function broadcastSocialState() {
+    if (!socialManager || !socialManager.isLoggedIn() || !mainWindow) return;
+    (async () => {
+        try {
+            const userId = socialManager.getUserId();
+            const friends = await socialManager.listFriends();
+            const pendingReqs = await socialManager.getPendingRequests();
+            const conversations = await socialManager.getConversations();
+
+            // Query user_presence for friends to get actual game status
+            const friendIds = friends.map(f => f.id);
+            let presenceRows = [];
+            if (friendIds.length > 0 && socialDb && socialDb.connected) {
+                try {
+                    const res = await socialDb.query(
+                        `SELECT up.user_id, up.status AS game_status, up.server_ip, up.version
+                         FROM user_presence up
+                         WHERE up.user_id = ANY($1::int[])`,
+                        [friendIds]
+                    );
+                    presenceRows = res.rows;
+                } catch (e) { /* user_presence table may not exist */ }
+            }
+            const presenceMap = {};
+            for (const row of presenceRows) {
+                presenceMap[row.user_id] = row;
+            }
+
+            // Build structure for renderer
+            const friendsList = friends.map(f => f.username);
+            const presence = {};
+            const unread = {};
+            const conversations_list = [];
+            for (const f of friends) {
+                let version = undefined;
+                let serverName = undefined;
+                if (f.custom_status && f.custom_status.includes('|')) {
+                    const [v, m] = f.custom_status.split('|');
+                    version = v;
+                    serverName = m === 'multiplayer' ? 'Multijugador' : 'Singleplayer';
+                } else if (f.custom_status) {
+                    serverName = f.custom_status || undefined;
+                    version = undefined;
+                }
+
+                // Override with game presence from user_presence if user_status doesn't have game info
+                const gp = presenceMap[f.id];
+                let status = f.status || 'offline';
+                if (gp && gp.game_status !== 'OFFLINE' && status === 'online') {
+                    status = gp.game_status === 'MULTIPLAYER' ? 'playing_multiplayer' :
+                             gp.game_status === 'SINGLEPLAYER' ? 'playing_singleplayer' : status;
+                    if (status !== 'online') {
+                        version = gp.version || version;
+                        serverName = gp.server_ip || serverName;
+                    }
+                }
+
+                presence[f.username] = { status, serverName, version };
+
+                const conv = conversations.find(c => c.other_users && c.other_users.some(u => u.id === f.id));
+                if (conv) {
+                    unread[f.username] = conv.unread_count || 0;
+                    conversations_list.push({
+                        username: f.username,
+                        last_message: conv.last_message || '',
+                        last_message_at: conv.last_message_at ? conv.last_message_at.toISOString() : null
+                    });
+                } else {
+                    unread[f.username] = 0;
+                }
+            }
+            const pendingList = pendingReqs.map(r => ({ from: r.username, id: r.id, type: 'friend' }));
+            try {
+                const gameInvites = await socialManager.getPendingGameInvites();
+                for (const inv of gameInvites) {
+                    pendingList.push({ from: inv.from_username, id: inv.id, type: 'game-invite', worldName: inv.world_name, serverIp: inv.server_ip });
+                }
+            } catch (e) { /* game_invitations table may not exist yet */ }
+
+            if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('social-update', { friends: friendsList, presence, pending: pendingList, unread, conversations: conversations_list });
+                mainWindow.webContents.send('social-connected');
+            }
+        } catch (e) { console.error('[SOCIAL] broadcast error:', e); }
+    })();
+}
+
+function startSocialPolling(manager) {
+    if (socialPollInterval) clearInterval(socialPollInterval);
+    socialPollInterval = setInterval(() => {
+        if (manager && manager.isLoggedIn()) {
+            broadcastSocialState();
+        }
+    }, 2000);
+}
+
+// ── Presence System (stub for B, wired by A) ──
+async function updatePresence(userId, status, serverIp, version) {
+    if (!socialDb || !socialDb.connected) return;
+    try {
+        await socialDb.query(`CREATE TABLE IF NOT EXISTS user_presence (
+            user_id   INTEGER PRIMARY KEY,
+            status    TEXT NOT NULL DEFAULT 'OFFLINE',
+            server_ip TEXT,
+            version   TEXT,
+            last_seen TIMESTAMPTZ DEFAULT NOW()
+        )`);
+        await socialDb.query(
+            `INSERT INTO user_presence (user_id, status, server_ip, version, last_seen)
+             VALUES ($1, $2, $3, $4, NOW())
+             ON CONFLICT (user_id) DO UPDATE SET
+               status = EXCLUDED.status,
+               server_ip = COALESCE(EXCLUDED.server_ip, user_presence.server_ip),
+               version = COALESCE(EXCLUDED.version, user_presence.version),
+               last_seen = NOW()`,
+            [userId, status, serverIp || null, version || null]
+        );
+    } catch (e) {
+        console.warn('[PRESENCE] update error:', e.message);
+    }
+}
+
+function emitMinecraftState(userId, status, ip, version) {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    mainWindow.webContents.send('minecraft-state-change', { userId, status, ip, version });
+    updatePresence(userId, status, ip, version);
+    if (status === 'OFFLINE') {
+        updateSocialGameStatus('online', null, null);
+        const entry = activeProcesses.get(userId);
+        if (entry) {
+            if (entry.presenceInterval) clearInterval(entry.presenceInterval);
+            activeProcesses.delete(userId);
+        }
+    } else if (status === 'MULTIPLAYER') {
+        updateSocialGameStatus('playing_multiplayer', version, 'multiplayer');
+    } else if (status === 'SINGLEPLAYER') {
+        updateSocialGameStatus('playing_singleplayer', version, 'singleplayer');
+    }
+}
+
+// ── Process Monitor ──
+ipcMain.handle('launch-minecraft', async (_, { jarPath, version, username, jvmArgs }) => {
+    const userId = socialManager?.getUserId() || 'default';
+    if (activeProcesses.has(userId)) {
+        return { success: false, error: 'Ya hay un proceso activo para este usuario' };
+    }
+
+    const ram = '2';
+    const javaArgs = [
+        `-Xmx${ram}G`, `-Xms512M`,
+        ...(jvmArgs ? jvmArgs.split(/\s+/).filter(Boolean) : []),
+        '-jar', jarPath
+    ];
+
+    try {
+        const proc = child_process.spawn('java', javaArgs, {
+            stdio: ['ignore', 'pipe', 'pipe'],
+            windowsHide: false
+        });
+
+        const entry = { proc, state: 'STARTING', version, serverIp: null, presenceInterval: null };
+        activeProcesses.set(userId, entry);
+
+        const rl = readline.createInterface({ input: proc.stdout, crlfDelay: Infinity });
+
+        rl.on('line', (line) => {
+            console.log('[MC-OUT]', line);
+            if (line.includes('Connecting to ')) {
+                const ipMatch = line.match(/Connecting to\s+(\S+)/);
+                const ip = ipMatch ? ipMatch[1] : null;
+                entry.state = 'MULTIPLAYER';
+                entry.serverIp = ip;
+                emitMinecraftState(userId, 'MULTIPLAYER', ip, version);
+            } else if (line.includes('Loading world')) {
+                entry.state = 'SINGLEPLAYER';
+                entry.serverIp = null;
+                emitMinecraftState(userId, 'SINGLEPLAYER', null, version);
+            }
+        });
+
+        proc.stderr.on('data', (data) => {
+            console.log('[MC-ERR]', data.toString());
+        });
+
+        proc.on('close', (code) => {
+            console.log('[MC] Process closed with code', code);
+            const e = activeProcesses.get(userId);
+            if (e && e.presenceInterval) clearInterval(e.presenceInterval);
+            activeProcesses.delete(userId);
+            emitMinecraftState(userId, 'OFFLINE', null, null);
+        });
+
+        // Start presence heartbeat (System B — every 30s)
+        entry.presenceInterval = setInterval(() => {
+            const e = activeProcesses.get(userId);
+            if (e) updatePresence(userId, e.state, e.serverIp, version);
+        }, 30000);
+
+        return { success: true };
+    } catch (err) {
+        return { success: false, error: err.message };
+    }
+});
+
+ipcMain.handle('launch-minecraft-with-server', async (_, { jarPath, ip, version, username }) => {
+    const userId = socialManager?.getUserId() || 'default';
+    if (activeProcesses.has(userId)) {
+        return { success: false, error: 'Ya hay un proceso activo' };
+    }
+
+    const resolvedJar = jarPath || 'minecraft_client.jar';
+    const resolvedUser = username || 'Jugador';
+    const javaArgs = ['-Xmx2G', '-Xms512M', '-jar', resolvedJar, '--server', ip, '--username', resolvedUser];
+
+    try {
+        const proc = child_process.spawn('java', javaArgs, {
+            stdio: ['ignore', 'pipe', 'pipe'],
+            windowsHide: false
+        });
+
+        const entry = { proc, state: 'STARTING', version, serverIp: ip, presenceInterval: null };
+        activeProcesses.set(userId, entry);
+
+        const rl = readline.createInterface({ input: proc.stdout, crlfDelay: Infinity });
+
+        rl.on('line', (line) => {
+            console.log('[MC-E]', line);
+            if (line.includes('Connecting to ')) {
+                entry.state = 'MULTIPLAYER';
+                emitMinecraftState(userId, 'MULTIPLAYER', ip, version);
+            } else if (line.includes('Loading world')) {
+                entry.state = 'SINGLEPLAYER';
+                emitMinecraftState(userId, 'SINGLEPLAYER', null, version);
+            }
+        });
+
+        proc.stderr.on('data', (data) => console.log('[MC-E-ERR]', data.toString()));
+
+        proc.on('close', (code) => {
+            console.log('[MC-E] Closed with code', code);
+            const e = activeProcesses.get(userId);
+            if (e && e.presenceInterval) clearInterval(e.presenceInterval);
+            activeProcesses.delete(userId);
+            emitMinecraftState(userId, 'OFFLINE', null, null);
+        });
+
+        entry.presenceInterval = setInterval(() => {
+            const e = activeProcesses.get(userId);
+            if (e) updatePresence(userId, e.state, e.serverIp, version);
+        }, 30000);
+
+        return { success: true };
+    } catch (err) {
+        return { success: false, error: err.message };
+    }
+});
+
+ipcMain.handle('stop-minecraft', async (_) => {
+    try {
+        const userId = socialManager?.getUserId() || 'default';
+        const entry = activeProcesses.get(userId);
+        if (!entry) return { success: false, error: 'No hay proceso activo' };
+        entry.proc.kill('SIGTERM');
+        return { success: true };
+    } catch (e) {
+        console.error('[SISTEMA A] stop-minecraft:', e);
+        return { success: false, error: e.message };
+    }
+});
+
+ipcMain.handle('update-presence', async (_, { status, serverIp, version }) => {
+    try {
+        const userId = socialManager?.getUserId();
+        if (!userId) return { success: false, error: 'No hay sesión' };
+        await updatePresence(userId, status, serverIp, version);
+        return { success: true };
+    } catch (e) {
+        console.error('[SISTEMA B] update-presence:', e);
+        return { success: false, error: e.message };
+    }
+});
+
+ipcMain.handle('get-friends-presence', async (_, { friendIds }) => {
+    if (!socialDb || !socialDb.connected) return [];
+    try {
+        const res = await socialDb.query(
+            `SELECT up.*, u.username FROM user_presence up
+             JOIN users u ON u.id = up.user_id
+             WHERE up.user_id = ANY($1::int[])`,
+            [friendIds]
+        );
+        return res.rows;
+    } catch (e) {
+        console.warn('[PRESENCE] get-friends-presence error:', e.message);
+        return [];
+    }
+});
+
+// ── Host Server + Playit Tunnel (System D) ──
+let serverProcess = null;      // { proc, minecraftDir }
+let tunnelProcess = null;      // { proc, retries }
+let tunnelRetries = 0;
+const MAX_TUNNEL_RETRIES = 3;
+
+async function ensureOnlineModeFalse(minecraftDir) {
+    const propsPath = path.join(minecraftDir, 'server.properties');
+    let props = '';
+    if (fs.existsSync(propsPath)) {
+        props = fs.readFileSync(propsPath, 'utf8');
+    }
+    if (props.includes('online-mode=true')) {
+        props = props.replace(/online-mode=true/g, 'online-mode=false');
+    } else if (!props.includes('online-mode')) {
+        props += '\nonline-mode=false\n';
+    }
+    fs.writeFileSync(propsPath, props, 'utf8');
+}
+
+ipcMain.handle('start-local-server', async (_, { serverJarPath, minecraftDir }) => {
+    if (serverProcess) {
+        return { success: false, error: 'El servidor ya está corriendo' };
+    }
+
+    try {
+        fs.mkdirSync(minecraftDir, { recursive: true });
+        await ensureOnlineModeFalse(minecraftDir);
+
+        // Start server
+        const proc = child_process.spawn('java', ['-Xmx4G', '-Xms4G', '-jar', serverJarPath, 'nogui'], {
+            cwd: minecraftDir,
+            stdio: ['ignore', 'pipe', 'pipe'],
+            windowsHide: false
+        });
+        serverProcess = { proc, minecraftDir };
+
+        const srvRl = readline.createInterface({ input: proc.stdout, crlfDelay: Infinity });
+        srvRl.on('line', (line) => {
+            console.log('[SERVER]', line);
+            parseServerLine(line);
+            if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('server-log', { line });
+            }
+        });
+
+        proc.stderr.on('data', (d) => console.log('[SERVER-ERR]', d.toString()));
+
+        proc.on('close', (code) => {
+            console.log('[SERVER] Closed with code', code);
+            serverProcess = null;
+            if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('server-log', { line: `[Servidor] Cerrado (código ${code})` });
+            }
+        });
+
+        // Start playit tunnel
+        startTunnel();
+
+        return { success: true };
+    } catch (err) {
+        if (overlayWindow && !overlayWindow.isDestroyed()) {
+            overlayWindow.webContents.send('admin-toast', { msg: 'Error al iniciar servidor: ' + err.message, type: 'error' });
+        }
+        return { success: false, error: err.message };
+    }
+});
+
+function startTunnel() {
+    if (tunnelProcess) {
+        tunnelProcess.proc.kill('SIGTERM');
+        tunnelProcess = null;
+    }
+
+    const tunProc = child_process.spawn('playit-cli', [], {
+        stdio: ['ignore', 'pipe', 'pipe'],
+        windowsHide: true
+    });
+    tunnelProcess = { proc: tunProc, retries: tunnelRetries };
+
+    const tunRl = readline.createInterface({ input: tunProc.stdout, crlfDelay: Infinity });
+    tunRl.on('line', (line) => {
+        console.log('[TUNNEL]', line);
+        const match = line.match(/([a-z0-9\-]+\.playit\.gg)/i);
+        if (match) {
+            const ip = match[1];
+            console.log('[TUNNEL] IP detectada:', ip);
+            tunnelRetries = 0;
+            if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('tunnel-ip-ready', { ip });
+            }
+        }
+    });
+
+    tunProc.stderr.on('data', (d) => console.log('[TUNNEL-ERR]', d.toString()));
+
+    tunProc.on('close', (code) => {
+        console.log('[TUNNEL] Closed with code', code);
+        tunnelProcess = null;
+        if (code !== 0 && tunnelRetries < MAX_TUNNEL_RETRIES) {
+            tunnelRetries++;
+            console.log(`[TUNNEL] Reintento ${tunnelRetries}/${MAX_TUNNEL_RETRIES}`);
+            setTimeout(() => startTunnel(), 2000);
+        } else if (code !== 0) {
+            console.log('[TUNNEL] Reintentos agotados');
+            if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('tunnel-failed', {});
+                const nm = notificationManager;
+                if (nm) nm.show('default', { body: 'No se pudo establecer el túnel playit. Revisa tu conexión.' });
+            }
+        }
+    });
+}
+
+ipcMain.handle('stop-local-server', async () => {
+    try {
+        if (tunnelProcess) {
+            tunnelProcess.proc.kill('SIGTERM');
+            tunnelProcess = null;
+        }
+        tunnelRetries = 0;
+        if (serverProcess) {
+            serverProcess.proc.kill('SIGTERM');
+            serverProcess = null;
+        }
+        return { success: true };
+    } catch (e) {
+        console.error('[SISTEMA D] stop-local-server:', e);
+        return { success: false, error: e.message };
+    }
+});
+
+function updateSocialGameStatus(status, version, server) {
+    if (socialManager && socialManager.isLoggedIn()) {
+        const customStatus = version ? `${version}|${server || `singleplayer`}` : (server || '');
+        socialManager.db.updateStatus(socialManager.getUserId(), status, customStatus).catch(() => {});
+    }
+}
+
+// ── Social Overlay Window ──
+// IMPORTANTE: usar .hide()/.show() en lugar de .close()/.destroy()
+// El overlay persiste en memoria durante toda la sesión de la app.
+let overlayWindow = null;
+let adminWindow = null;
+let serverStartTime = null;
+let playerSessions = new Map();
+let serverLogBuffer = [];
+let chatMessageCount = 0;
+let maxPlayerCount = 0;
+
+function createOverlayWindow() {
+    if (overlayWindow && !overlayWindow.isDestroyed()) {
+        overlayWindow.show();
+        overlayWindow.focus();
+        return;
+    }
+    overlayWindow = new BrowserWindow({
+        width: 340,
+        height: 480,
+        frame: false,
+        resizable: false,
+        alwaysOnTop: true,
+        skipTaskbar: true,
+        show: false,
+        webPreferences: {
+            nodeIntegration: true,
+            contextIsolation: false,
+        },
+        backgroundColor: '#0f0f0f'
+    });
+    overlayWindow.loadFile('social-overlay.html');
+
+    overlayWindow.on('closed', () => {
+        overlayWindow = null;
+    });
+    overlayWindow.once('ready-to-show', () => {
+        overlayWindow.showInactive();
+    });
+}
+
+function showOverlay() {
+    if (overlayWindow && !overlayWindow.isDestroyed()) {
+        overlayWindow.show();
+        overlayWindow.focus();
+        console.log('[OVERLAY] show');
+    } else {
+        createOverlayWindow();
+        console.log('[OVERLAY] created via showOverlay');
+    }
+}
+
+function hideOverlay() {
+    if (overlayWindow && !overlayWindow.isDestroyed()) {
+        overlayWindow.hide();
+        console.log('[OVERLAY] hide');
+    }
+}
+
+function toggleOverlay() {
+    if (overlayWindow && !overlayWindow.isDestroyed() && overlayWindow.isVisible()) {
+        hideOverlay();
+    } else {
+        showOverlay();
+    }
+}
+
+function createAdminWindow() {
+    if (adminWindow && !adminWindow.isDestroyed()) { adminWindow.show(); adminWindow.focus(); return; }
+    adminWindow = new BrowserWindow({
+        width: 860, height: 600, minWidth: 700, minHeight: 450,
+        title: 'Administración del Servidor',
+        webPreferences: { nodeIntegration: false, contextIsolation: true, preload: path.join(__dirname, 'preload.js') },
+        backgroundColor: '#0d1117', show: false
+    });
+    adminWindow.loadFile('server-admin.html');
+    adminWindow.once('ready-to-show', () => adminWindow.show());
+    adminWindow.on('closed', () => { adminWindow = null; });
+}
+
+function openAdminWindow() {
+    if (adminWindow && !adminWindow.isDestroyed()) { adminWindow.show(); adminWindow.focus(); return; }
+    createAdminWindow();
+}
+
+function broadcastToAdmin(channel, data) {
+    if (adminWindow && !adminWindow.isDestroyed()) adminWindow.webContents.send(channel, data);
+}
+
+function parseServerLine(line) {
+    serverLogBuffer.push({ ts: Date.now(), text: line });
+    if (serverLogBuffer.length > 500) serverLogBuffer.shift();
+    if (line.includes('Done') && line.includes('For help')) {
+        serverStartTime = serverStartTime || Date.now();
+        openAdminWindow();
+        broadcastToAdmin('admin-server-ready', { startTime: serverStartTime });
+        if (overlayWindow && !overlayWindow.isDestroyed()) {
+            overlayWindow.webContents.send('admin-toast', { msg: 'Servidor iniciado — Ventana admin abierta', type: 'success' });
+        }
+    }
+    const joinMatch = line.match(/]: (\w+) joined the game/);
+    if (joinMatch) {
+        const username = joinMatch[1];
+        const prev = playerSessions.get(username);
+        playerSessions.set(username, { joinTime: Date.now(), totalMs: prev?.totalMs || 0, online: true });
+        const onlinePlayers = Array.from(playerSessions.values()).filter(p => p.online).length;
+        if (onlinePlayers > maxPlayerCount) maxPlayerCount = onlinePlayers;
+        broadcastToAdmin('admin-player-join', { username, ts: Date.now() });
+    }
+    const leaveMatch = line.match(/]: (\w+) left the game/);
+    if (leaveMatch) {
+        const username = leaveMatch[1];
+        const session = playerSessions.get(username);
+        if (session) {
+            const sessionMs = Date.now() - session.joinTime;
+            playerSessions.set(username, { joinTime: null, totalMs: session.totalMs + sessionMs, online: false });
+        }
+        broadcastToAdmin('admin-player-leave', { username, ts: Date.now() });
+    }
+    const chatMatch = line.match(/]: <(\w+)> (.+)/);
+    if (chatMatch) {
+        chatMessageCount++;
+        broadcastToAdmin('admin-chat', { username: chatMatch[1], message: chatMatch[2], ts: Date.now() });
+    }
+    broadcastToAdmin('admin-log', { text: line, ts: Date.now() });
 }
 
 app.whenReady().then(() => {
-    let mainWindow = createWindow();
+    mainWindow = createWindow();
     setupTray(mainWindow);
-    startVoidSocial();
+    startSocialManager(NEON_DB_URL);
 
+    // Global shortcut overlay
+    try {
+        const registered = globalShortcut.register('Ctrl+Shift+X', () => {
+            toggleOverlay();
+        });
+        if (!registered) console.error('[OVERLAY] Failed to register shortcut');
+    } catch (e) {
+        console.error('[OVERLAY] Shortcut error:', e.message);
+    }
+    // Try to restore saved session on next tick
+    setImmediate(async () => {
+        const session = loadSession();
+        if (session && session.token && socialDb && socialDb.connected) {
+            try {
+                const valid = await socialDb.getSession(session.token);
+                    if (valid && mainWindow && !mainWindow.isDestroyed()) {
+                        socialManager.activeSession = { token: valid.token, user_id: valid.user_id };
+                        socialManager.activeUserId = valid.user_id;
+                        await socialDb.updateStatus(valid.user_id, 'online', '');
+                        socialManager.startHeartbeat();
+                        socialManager.startPolling((event) => {
+                            if (event.type === 'pending-requests' || event.type === 'game-invites') broadcastSocialState();
+                        });
+                        startSocialPolling(socialManager);
+                        mainWindow.webContents.send('session-restored', { username: valid.username });
+                    }
+                } catch (e) {
+                    console.error('[SOCIAL] Auto-restore error:', e);
+                    deleteSession();
+                }
+            }
+        });
     autoUpdater.logger = console;
-    autoUpdater.autoDownload = false;
     if (!app.isPackaged) autoUpdater.forceDevUpdateConfig = true;
     const win = () => BrowserWindow.getFocusedWindow() || mainWindow;
 
@@ -382,7 +914,15 @@ app.whenReady().then(() => {
     autoUpdater.checkForUpdates().catch(e => console.error('[UPDATER] Check error:', e));
 });
 app.on('before-quit', () => {
-    if (voidSocial) { voidSocial.stop(); voidSocial = null; }
+    globalShortcut.unregisterAll();
+    stopSocialManager();
+    // Kill all active Minecraft processes
+    for (const [userId, entry] of activeProcesses) {
+        if (entry.presenceInterval) clearInterval(entry.presenceInterval);
+        updatePresence(userId, 'OFFLINE', null, null).catch(() => {});
+        entry.proc.kill('SIGTERM');
+    }
+    activeProcesses.clear();
     if (tray) { tray.destroy(); tray = null; }
 });
 
@@ -427,7 +967,7 @@ ipcMain.on('save-cosmetics', (_, cosmetics) => {
 });
 
 // ─────────────────────────────────────────────
-// IPC — CUENTAS
+// IPC — NICKNAMES
 // ─────────────────────────────────────────────
 ipcMain.on('get-accounts', (e) => {
     const cfg = loadConfig();
@@ -501,6 +1041,25 @@ ipcMain.on('apply-skin-from-library', (e, { skinId, accountId }) => {
     e.returnValue = true;
 });
 
+ipcMain.handle('save-skin-file', async (_, { data }) => {
+    try {
+        const skinsDir = path.join(userDataPath, 'skins');
+        fs.mkdirSync(skinsDir, { recursive: true });
+        const destPath = path.join(skinsDir, `editor_${Date.now()}.png`);
+        const buf = Buffer.from(data);
+        fs.writeFileSync(destPath, buf);
+
+        const cfg = loadConfig();
+        if (!cfg.skinLibrary) cfg.skinLibrary = [];
+        cfg.skinLibrary.push({ id: generateId(), name: 'Editor ' + new Date().toLocaleDateString(), source: 'local', path: destPath, isActive: false });
+        saveConfig(cfg);
+        return true;
+    } catch (err) {
+        console.error('[SAVE-SKIN] Error:', err);
+        return false;
+    }
+});
+
 ipcMain.handle('download-nova-skin', async (_, { name, url }) => {
     try {
         const skinsDir = path.join(userDataPath, 'skins');
@@ -530,76 +1089,511 @@ ipcMain.handle('download-nova-skin', async (_, { name, url }) => {
 });
 
 // ─────────────────────────────────────────────
-// IPC — SOCIAL
+// IPC — SOCIAL CLOUD (Neon)
 // ─────────────────────────────────────────────
-ipcMain.on('get-social-peers', (e) => {
-    e.returnValue = voidSocial ? voidSocial.getPeers() : [];
+ipcMain.on('social-is-connected', (e) => {
+    e.returnValue = !!(socialManager && socialManager.isLoggedIn());
 });
 
-ipcMain.on('toggle-social-drawer', (e, { open }) => {
-    const win = BrowserWindow.getAllWindows()[0];
-    if (!win) { e.returnValue = true; return; }
-    const [w, h] = win.getSize();
-    const targetW = open ? 1260 : 960;
-    win.setResizable(true);
-    win.setSize(targetW, h, true);
-    setTimeout(() => win.setResizable(false), 400);
-    e.returnValue = true;
-});
-
-ipcMain.on('send-chat-message', (e, { to, text }) => {
-    if (voidSocial) voidSocial.sendMessage(to, text);
-    e.returnValue = true;
-});
-
-ipcMain.on('get-chat-history', (e, { username }) => {
-    e.returnValue = voidSocial ? (voidSocial.chatHistory[username] || []) : [];
-});
-
-ipcMain.on('get-pending-friend-requests', (e) => {
-    e.returnValue = voidSocial ? voidSocial.pendingRequests : [];
-});
-
-ipcMain.on('send-friend-request', (e, { toUsername }) => {
-    if (voidSocial) voidSocial.sendFriendRequest(toUsername);
-    e.returnValue = true;
-});
-
-ipcMain.on('accept-friend-request', (e, { fromUsername }) => {
-    const cfgLocal = loadConfig();
-    if (!cfgLocal.friends) cfgLocal.friends = [];
-    if (!cfgLocal.friends.find(f => f.username === fromUsername)) {
-        cfgLocal.friends.push({ username: fromUsername, addedAt: Date.now() });
-        saveConfig(cfgLocal);
+// ── Auth ──
+ipcMain.handle('social-register', async (_, { username, password }) => {
+    if (!socialManager) return { success: false, error: 'DB no conectada' };
+    const result = await socialManager.signup(username, password);
+    if (result.success && result.session) {
+        saveSession({ token: result.session.token, userId: result.user.id, username: result.user.username });
     }
-    if (voidSocial) {
-        voidSocial.pendingRequests = voidSocial.pendingRequests.filter(r => r.from !== fromUsername);
+    return result;
+});
+
+ipcMain.handle('social-signin', async (_, { username, password }) => {
+    if (!socialManager) return { success: false, error: 'DB no conectada' };
+    const result = await socialManager.signin(username, password);
+    if (result.success && result.session) {
+        saveSession({ token: result.session.token, userId: result.user.id, username: result.user.username });
     }
-    e.returnValue = true;
+    return result;
 });
 
-ipcMain.on('get-friends-list', (e) => {
-    const cfgLocal = loadConfig();
-    const friends = cfgLocal.friends || [];
-    const peers = voidSocial ? voidSocial.getPeers() : [];
-    const enriched = friends.map(f => ({
-        ...f,
-        online: peers.some(p => p.username === f.username),
-        inGame: false
-    }));
-    e.returnValue = enriched;
+ipcMain.handle('social-create-guest', async () => {
+    if (!socialManager) return { success: false, error: 'DB no conectada' };
+    const result = await socialManager.createGuest();
+    if (result.success && result.session) {
+        saveSession({ token: result.session.token, userId: result.user.id, username: result.user.username });
+    }
+    return result;
 });
 
-ipcMain.on('save-cosmetics-3d', (e, cosmetics3d) => {
-    const cfgLocal = loadConfig();
-    cfgLocal.cosmetics3d = cosmetics3d;
-    saveConfig(cfgLocal);
-    e.returnValue = true;
+ipcMain.handle('social-signout', async () => {
+    if (!socialManager) return { success: false, error: 'Social no iniciado' };
+    if (socialManager.isLoggedIn()) {
+        const profile = await socialManager.getProfile();
+        if (profile && profile.is_guest) {
+            await socialManager.deleteAccount();
+            deleteSession();
+            return { success: true };
+        }
+    }
+    const result = await socialManager.signout();
+    if (result.success) deleteSession();
+    return result;
 });
 
-ipcMain.on('get-cosmetics-3d', (e) => {
-    const cfgLocal = loadConfig();
-    e.returnValue = cfgLocal.cosmetics3d || { cape: null, hat: null, wings: null };
+ipcMain.handle('social-signout-with-delete', async () => {
+    if (!socialManager) return { success: false, error: 'Social no iniciado' };
+    try {
+        const result = await socialManager.deleteAccount();
+        if (result.success) deleteSession();
+        return result;
+    } catch (e) {
+        console.error('[SOCIAL] Delete account error:', e);
+        return { success: false, error: e.message };
+    }
+});
+
+ipcMain.handle('social-delete-account', async () => {
+    if (!socialManager) return { success: false, error: 'Social no iniciado' };
+    return await socialManager.deleteAccount();
+});
+
+// ── Session persistence ──
+ipcMain.handle('social-restore-session', async () => {
+    const saved = loadSession();
+    if (!saved || !saved.token || !socialManager) return null;
+    try {
+        const session = await socialDb.getSession(saved.token);
+        if (!session) { deleteSession(); return null; }
+        socialManager.activeSession = { token: session.token, user_id: session.user_id };
+        socialManager.activeUserId = session.user_id;
+        await socialDb.updateStatus(session.user_id, 'online', '');
+        socialManager.startHeartbeat();
+        socialManager.startPolling((event) => {
+            if (event.type === 'pending-requests' || event.type === 'game-invites') broadcastSocialState();
+        });
+        startSocialPolling(socialManager);
+        return { username: session.username, userId: session.user_id };
+    } catch (e) {
+        console.error('[SOCIAL] Restore session error:', e);
+        deleteSession();
+        return null;
+    }
+});
+
+ipcMain.on('social-get-session', (e) => {
+    e.returnValue = loadSession();
+});
+
+ipcMain.on('social-is-logged-in', (e) => {
+    e.returnValue = !!(socialManager && socialManager.isLoggedIn());
+});
+ipcMain.handle('social-get-account', async () => {
+    try {
+        if (!socialManager) return null;
+        return await socialManager.getProfile();
+    } catch (e) {
+        console.error('[SOCIAL] get-account error:', e);
+        return null;
+    }
+});
+
+ipcMain.handle('social-get-user-by-username', async (_, { username }) => {
+    try {
+        if (!socialManager) return null;
+        return await socialManager.getUserByUsername(username);
+    } catch (e) {
+        console.error('[SOCIAL] get-user-by-username error:', e);
+        return null;
+    }
+});
+
+// ── Friends ──
+ipcMain.handle('social-send-friend-request', async (_, { toUser }) => {
+    try {
+        if (!socialManager) return { success: false, error: 'Social no iniciado' };
+        return await socialManager.sendFriendRequest(toUser);
+    } catch (e) {
+        console.error('[SOCIAL] send-friend-request error:', e);
+        return { success: false, error: e.message };
+    }
+});
+
+ipcMain.handle('social-accept-friend', async (_, { fromUser }) => {
+    try {
+        if (!socialManager) return;
+        const pending = await socialManager.getPendingRequests();
+        const req = pending.find(r => r.username === fromUser);
+        if (req) await socialManager.acceptFriendRequest(req.id);
+    } catch (e) {
+        console.error('[SOCIAL] accept-friend error:', e);
+    }
+});
+
+ipcMain.handle('social-reject-friend', async (_, { fromUser }) => {
+    try {
+        if (!socialManager) return;
+        const pending = await socialManager.getPendingRequests();
+        const req = pending.find(r => r.username === fromUser);
+        if (req) await socialManager.rejectFriendRequest(req.id);
+    } catch (e) {
+        console.error('[SOCIAL] reject-friend error:', e);
+    }
+});
+
+ipcMain.handle('social-remove-friend', async (_, { friendUser }) => {
+    try {
+        if (!socialManager) return;
+        const friends = await socialManager.listFriends();
+        const friend = friends.find(f => f.username === friendUser);
+        if (friend) {
+            await socialManager.removeFriend(friend.id);
+            setTimeout(() => broadcastSocialState(), 100);
+        }
+    } catch (e) {
+        console.error('[SOCIAL] remove-friend error:', e);
+    }
+});
+
+ipcMain.handle('social-list-friends', async () => {
+    try {
+        if (!socialManager) return [];
+        return await socialManager.listFriends();
+    } catch (e) {
+        console.error('[SOCIAL] list-friends error:', e);
+        return [];
+    }
+});
+
+ipcMain.handle('social-search-users', async (_, { query }) => {
+    if (!socialManager || !query || query.length < 1) return [];
+    try {
+        return await socialDb.searchUsers(query, 10);
+    } catch { return []; }
+});
+
+ipcMain.handle('social-get-pending-requests', async () => {
+    try {
+        if (!socialManager) return [];
+        return await socialManager.getPendingRequests();
+    } catch (e) {
+        console.error('[SOCIAL] get-pending-requests error:', e);
+        return [];
+    }
+});
+
+// ── Messages ──
+ipcMain.handle('social-get-messages', async (_, { withUser }) => {
+    if (!socialManager) return [];
+    try {
+        const target = await socialManager.getUserByUsername(withUser);
+        if (!target) return [];
+        const convId = await socialManager.getOrCreateConversation(target.id);
+        if (!convId) return [];
+        await socialManager.markRead(convId);
+        const msgs = await socialManager.getMessages(convId);
+        return msgs.map(m => ({
+            id: m.id,
+            from_user: m.sender_name,
+            content: m.content,
+            created_at: m.created_at
+        }));
+    } catch (e) {
+        console.error('[SOCIAL] get-messages error:', e);
+        return [];
+    }
+});
+
+ipcMain.handle('social-send-message', async (_, { toUser, content }) => {
+    if (!socialManager) return null;
+    try {
+        const target = await socialManager.getUserByUsername(toUser);
+        if (!target) return null;
+        const convId = await socialManager.getOrCreateConversation(target.id);
+        if (!convId) return null;
+        return await socialManager.sendMessage(convId, content);
+    } catch (e) {
+        console.error('[SOCIAL] send-message error:', e);
+        return null;
+    }
+});
+
+// ── Notifications ──
+ipcMain.handle('show-notification', (_, { type, data }) => {
+    if (notificationManager) {
+        notificationManager.show(type, data);
+    }
+});
+
+ipcMain.handle('send-game-invite', async (event, { toUser }) => {
+    try {
+        if (!event.sender || event.sender.isDestroyed()) return { success: false };
+        if (!socialManager || !socialManager.isLoggedIn()) return { success: false };
+        const profile = await socialManager.getProfile();
+        if (!profile) return { success: false, error: 'No profile' };
+        const userId = socialManager.activeUserId;
+
+        let serverIp = null;
+        let p2pSessionId = null;
+
+        try {
+            const res = await socialDb.query(
+                'SELECT COALESCE(status, \'OFFLINE\') AS status, server_ip FROM user_presence WHERE user_id = $1',
+                [userId]
+            );
+            const row = res.rows[0] || { status: 'OFFLINE', server_ip: null };
+            if (row.status === 'MULTIPLAYER') {
+                if (row.server_ip && row.server_ip.startsWith('p2p:')) {
+                    p2pSessionId = row.server_ip.replace('p2p:', '');
+                } else {
+                    serverIp = row.server_ip;
+                }
+            } else {
+                const sessionId = `p2p_${Date.now()}_${userId}_${toUser}`;
+                p2pSessionId = sessionId;
+            }
+        } catch (_) { /* presence table may not exist */ }
+
+        if (p2pSessionId) {
+            try {
+                const guestInfo = await socialManager.getUserByUsername(toUser);
+                const guestId = guestInfo?.id || '0';
+                await socialDb.query(
+                    `INSERT INTO p2p_sessions (session_id, host_user_id, guest_user_id, mc_port, status)
+                     VALUES ($1, $2, $3, 25565, 'PENDING')
+                     ON CONFLICT (session_id) DO NOTHING`,
+                    [p2pSessionId, userId, guestId]
+                );
+            } catch (_) {}
+        }
+
+        await socialDb.sendGameInvite(userId, toUser, 'su mundo', serverIp, p2pSessionId);
+        return { success: true, serverIp, p2pSessionId };
+    } catch (e) {
+        console.error('[SISTEMA C] send-game-invite:', e);
+        return { success: false, error: e.message };
+    }
+});
+
+ipcMain.on('close-overlay', () => {
+    if (overlayWindow && !overlayWindow.isDestroyed()) {
+        overlayWindow.hide();
+        console.log('[OVERLAY] hide via IPC');
+    }
+});
+
+ipcMain.on('toggle-overlay', () => {
+    toggleOverlay();
+});
+
+ipcMain.on('focus-main-window', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.show();
+        mainWindow.focus();
+    }
+});
+
+ipcMain.on('overlay-open-chat', (event, username) => {
+    if (event.sender && event.sender.isDestroyed()) return;
+    if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.show();
+        mainWindow.focus();
+        mainWindow.webContents.send('overlay-open-chat', username);
+    }
+});
+
+ipcMain.handle('get-social-state', async () => {
+    if (!socialManager || !socialManager.isLoggedIn()) return null;
+    try {
+        const profile = await socialManager.getProfile();
+        const friends = await socialManager.listFriends();
+        const socialDb = socialManager.db;
+        const connected = !!(socialDb?.connected && socialDb?.pool);
+        let pending = [];
+        let gameInvites = [];
+        try {
+            const requests = await socialManager.getPendingRequests();
+            pending = (requests || []).map(r => ({ from: r.from || r.from_username }));
+        } catch (_) { /* requests table may not exist */ }
+        try {
+            const invites = await socialManager.getPendingGameInvites();
+            gameInvites = (invites || []).map(inv => ({
+                id: inv.id,
+                from: inv.from_username,
+                worldName: inv.world_name || 'jugar',
+                serverIp: inv.server_ip,
+                p2pSessionId: inv.p2p_session_id,
+                createdAt: inv.created_at
+            }));
+        } catch (_) { /* game_invitations table may not exist */ }
+
+        // Query user_presence for friends to get actual game status
+        const friendIds = friends.map(f => f.id);
+        let presenceRows = [];
+        if (friendIds.length > 0 && socialDb && socialDb.connected) {
+            try {
+                const res = await socialDb.query(
+                    `SELECT up.user_id, up.status AS game_status, up.server_ip, up.version
+                     FROM user_presence up
+                     WHERE up.user_id = ANY($1::int[])`,
+                    [friendIds]
+                );
+                presenceRows = res.rows;
+            } catch (e) { /* user_presence table may not exist */ }
+        }
+        const presenceMap = {};
+        for (const row of presenceRows) {
+            presenceMap[row.user_id] = row;
+        }
+
+        return {
+            myUsername: profile?.username || '',
+            connected,
+            friends: friends.map(f => {
+                let status = f.status || 'offline';
+                let serverName = f.custom_status || undefined;
+                let version = f.custom_status?.includes('|') ? f.custom_status.split('|')[0] : undefined;
+
+                const gp = presenceMap[f.id];
+                if (gp && gp.game_status !== 'OFFLINE' && status === 'online') {
+                    status = gp.game_status === 'MULTIPLAYER' ? 'playing_multiplayer' :
+                             gp.game_status === 'SINGLEPLAYER' ? 'playing_singleplayer' : status;
+                    if (status !== 'online') {
+                        version = gp.version || version;
+                        serverName = gp.server_ip || serverName;
+                    }
+                }
+
+                return {
+                    username: f.username,
+                    status,
+                    serverName,
+                    version,
+                };
+            }),
+            pending,
+            gameInvites
+        };
+    } catch (e) {
+        console.error('[SOCIAL] get-social-state error:', e);
+        return null;
+    }
+});
+
+// ── Status / Misc ──
+ipcMain.handle('social-accept-game-invite', async (_, { inviteId }) => {
+    if (!socialManager || !socialManager.isLoggedIn()) return { success: false };
+    try {
+        const result = await socialManager.acceptGameInvite(inviteId);
+        broadcastSocialState();
+        if (result && result.p2p_session_id) {
+            const profile = await socialManager.getProfile();
+            const username = profile?.username || '';
+            const gameJar = getActiveGameDir() ? path.join(getActiveGameDir(), 'versions', '1.21.1', '1.21.1.jar') : '';
+            if (gameJar && fs.existsSync(gameJar)) {
+                setImmediate(() => {
+                    const win = BrowserWindow.getAllWindows().find(w => !w.isDestroyed());
+                    if (win) {
+                        win.webContents.send('p2p-auto-join', {
+                            sessionId: result.p2p_session_id,
+                            jarPath: gameJar,
+                            username
+                        });
+                    }
+                });
+            }
+        }
+        return { success: true, p2p_session_id: result?.p2p_session_id };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+});
+
+ipcMain.handle('social-reject-game-invite', async (_, { inviteId }) => {
+    if (!socialManager || !socialManager.isLoggedIn()) return { success: false };
+    try {
+        await socialManager.rejectGameInvite(inviteId);
+        broadcastSocialState();
+        return { success: true };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+});
+
+// ── Admin Window IPC ──
+ipcMain.handle('admin-get-initial-state', async () => {
+    const onlinePlayers = Array.from(playerSessions.values()).filter(p => p.online).length;
+    return {
+        logs: serverLogBuffer,
+        players: Object.fromEntries(playerSessions),
+        startTime: serverStartTime,
+        uptime: serverStartTime ? Date.now() - serverStartTime : 0,
+        maxPlayers: maxPlayerCount,
+        chatCount: chatMessageCount
+    };
+});
+
+ipcMain.handle('admin-send-command', async (_, { command }) => {
+    if (serverProcess) {
+        serverProcess.proc.stdin.write(command + '\n');
+        broadcastToAdmin('admin-log', { text: '> ' + command, ts: Date.now() });
+        return { success: true };
+    }
+    return { success: false, error: 'Servidor no activo' };
+});
+
+ipcMain.handle('admin-open-window', async () => {
+    openAdminWindow();
+    broadcastToAdmin('admin-server-ready', { startTime: Date.now() });
+    for (let i = 0; i < 3; i++) {
+        setTimeout(() => broadcastToAdmin('admin-log', { text: 'Bienvenido a la consola del servidor', ts: Date.now() }), i * 500);
+    }
+    return { success: true };
+});
+
+ipcMain.handle('admin-get-player-stats', async () => {
+    const stats = {};
+    for (const [username, session] of playerSessions) {
+        const total = session.online ? session.totalMs + (Date.now() - session.joinTime) : session.totalMs;
+        stats[username] = { ...session, currentSessionMs: session.online ? Date.now() - session.joinTime : 0, totalMs: total };
+    }
+    return stats;
+});
+
+ipcMain.handle('admin-close-server', async () => {
+    try {
+        if (tunnelProcess) { tunnelProcess.proc.kill('SIGTERM'); tunnelProcess = null; }
+        tunnelRetries = 0;
+        if (serverProcess) { serverProcess.proc.kill('SIGTERM'); serverProcess = null; }
+        if (adminWindow && !adminWindow.isDestroyed()) { adminWindow.close(); adminWindow = null; }
+        serverLogBuffer = [];
+        playerSessions.clear();
+        serverStartTime = null;
+        chatMessageCount = 0;
+        maxPlayerCount = 0;
+        return { success: true };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+});
+
+ipcMain.handle('social-get-friend-status', async (_, { friendUsername }) => {
+    try {
+        if (!socialManager) return null;
+        const target = await socialManager.getUserByUsername(friendUsername);
+        if (!target) return null;
+        return await socialManager.getFriendStatus(target.id);
+    } catch (e) {
+        console.error('[SOCIAL] get-friend-status error:', e);
+        return null;
+    }
+});
+
+ipcMain.handle('social-list-online-friends', async () => {
+    if (!socialManager) return [];
+    return await socialManager.listFriends();
+});
+
+ipcMain.on('social-retry', () => {
+    stopSocialManager();
+    startSocialManager(NEON_DB_URL);
 });
 
 ipcMain.on('set-minimize-to-tray', (e, { value }) => {
@@ -1091,11 +2085,32 @@ ipcMain.on('launch-game', async (event, { profileId }) => {
         global.activeInstancesCount = activeInstances;
         event.reply('launch-status', { type: 'instances', data: activeInstances });
 
+        updateSocialGameStatus('playing_singleplayer', profile.versionId || version, null);
+
+        const uid = socialManager?.getUserId();
+        if (uid) {
+            activeProcesses.set(uid, { state: 'SINGLEPLAYER', version: profile.versionId || version, serverIp: null, presenceInterval: null });
+            emitMinecraftState(uid, 'SINGLEPLAYER', null, profile.versionId || version);
+        }
+
         instanceLauncher.launch(opts);
         instanceLauncher.on('debug', e => console.log('[DEBUG]', e));
-        instanceLauncher.on('data', e => console.log('[DATA]', e));
+        instanceLauncher.on('data', e => {
+            console.log('[DATA]', e);
+            const lanMatch = e.match(/Started serving on (\d+)/);
+            if (lanMatch && overlayWindow && !overlayWindow.isDestroyed()) {
+                overlayWindow.webContents.send('admin-toast', { msg: 'Mundo LAN detectado — Puerto ' + lanMatch[1], type: 'info' });
+            }
+        });
         instanceLauncher.on('progress', e => event.reply('launch-status', { type: 'progress', data: e }));
         instanceLauncher.on('close', (code) => {
+            setTimeout(() => {
+                updateSocialGameStatus('online', null, null);
+                if (uid) {
+                    activeProcesses.delete(uid);
+                    emitMinecraftState(uid, 'OFFLINE', null, null);
+                }
+            }, 2000);
             activeInstances = Math.max(0, activeInstances - 1);
             global.activeInstancesCount = activeInstances;
             console.log('[CLOSE] Instancia cerrada, activas:', activeInstances);
@@ -1826,6 +2841,188 @@ ipcMain.on('write-options', (_, { key, value }) => {
 ipcMain.on('launch-module-editor', () => {
     const gameDir = getActiveGameDir();
     if (!gameDir) return;
-    // For now, just log — launching in --editor mode is future scope
     console.log('[VOID-CLIENT] Module editor requested for', gameDir);
+});
+
+// ─────────────────────────────────────────────
+// P2P — PEER-TO-PEER MULTIPLAYER
+// ─────────────────────────────────────────────
+
+async function findFreePort(start = 25565) {
+    const maxAttempts = 10;
+    for (let port = start; port < start + maxAttempts; port++) {
+        try {
+            await new Promise((resolve, reject) => {
+                const srv = require('net').createServer();
+                srv.on('error', reject);
+                srv.listen(port, '127.0.0.1', () => {
+                    srv.close(() => resolve());
+                });
+            });
+            return port;
+        } catch (_) { /* port in use, try next */ }
+    }
+    return start + maxAttempts;
+}
+
+const _p2pEngineCache = new Map(); // sessionId → P2PEngine for reuse
+
+ipcMain.handle('p2p-start-hosting', async (_, { sessionId, guestUserId, mcPort, userId }) => {
+    try {
+        if (!activeProcesses.has(userId)) {
+            return { success: false, error: 'Inicia el servidor primero' };
+        }
+        const pool = socialDb?.pool;
+        if (!pool) return { success: false, error: 'DB no conectada' };
+
+        const engine = new P2PEngine(pool);
+        _p2pEngineCache.set(sessionId, engine);
+
+        engine.on('channel-open', async (sid, dc) => {
+            const bridge = new P2PBridge();
+            const port = mcPort || 25565;
+            await bridge.startHostBridge(dc, port);
+            activeBridges.set(sid, { engine, bridge });
+
+            if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('p2p-status', { stage: 'CONNECTED', sessionId: sid });
+            }
+            openAdminWindow();
+            broadcastToAdmin('admin-server-ready', { startTime: serverStartTime || Date.now() });
+        });
+
+        engine.on('channel-closed', (sid) => {
+            const entry = activeBridges.get(sid);
+            if (entry) { entry.bridge?.stop(); activeBridges.delete(sid); }
+            _p2pEngineCache.delete(sid);
+            if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('p2p-status', { stage: 'DISCONNECTED', sessionId: sid });
+            }
+        });
+
+        if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('p2p-status', { stage: 'SIGNALING', sessionId });
+        }
+
+        await engine.createOffer(sessionId, userId, guestUserId, mcPort || 25565);
+
+        if (socialDb) {
+            try {
+                const version = '1.21.1';
+                await socialDb.query(
+                    `UPDATE user_presence SET status = 'MULTIPLAYER', server_ip = $2, version = $3, last_seen = NOW() WHERE user_id = $1`,
+                    [userId, `p2p:${sessionId}`, version]
+                );
+            } catch (_) {}
+        }
+
+        engine.waitForAnswer(sessionId, 60000).catch(() => {
+            if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('p2p-status', { stage: 'TIMEOUT', sessionId });
+            }
+        });
+
+        return { success: true };
+    } catch (e) {
+        console.error('[P2P] start-hosting error:', e);
+        return { success: false, error: e.message };
+    }
+});
+
+ipcMain.handle('p2p-join-session', async (_, { sessionId, userId, jarPath, username }) => {
+    try {
+        const pool = socialDb?.pool;
+        if (!pool) return { success: false, error: 'DB no conectada' };
+
+        const engine = new P2PEngine(pool);
+        _p2pEngineCache.set(sessionId, engine);
+
+        if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('p2p-status', { stage: 'SIGNALING', sessionId });
+        }
+
+        await engine.createAnswer(sessionId, userId);
+
+        engine.pollHostCandidates(sessionId, (candidate) => {
+            // candidates auto-forwarded via addRemoteCandidate in engine
+        });
+
+        engine.on('channel-open', async (sid, dc) => {
+            const bridge = new P2PBridge();
+            const proxyPort = await findFreePort(25565);
+            await bridge.startGuestBridge(dc, proxyPort);
+            activeBridges.set(sid, { engine, bridge });
+
+            if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('p2p-status', { stage: 'CONNECTED', proxyPort, sessionId: sid });
+            }
+
+            const javaInfo = findBestJava();
+            const javaPath = javaInfo?.path || 'java';
+            const gameDir = getActiveGameDir() || path.join(process.env.APPDATA, '.void-launcher');
+            const args = [
+                `-Djava.library.path=${path.join(gameDir, 'versions', '1.21.1', 'natives')}`,
+                '-cp', jarPath,
+                'net.minecraft.client.main.Main',
+                '--username', username,
+                '--server', `127.0.0.1:${proxyPort}`,
+            ];
+
+            const mc = child_process.spawn(javaPath, args, { stdio: 'pipe' });
+            mc.stdout.on('data', (d) => process.stdout.write(d));
+            mc.stderr.on('data', (d) => process.stderr.write(d));
+            mc.on('exit', () => {
+                bridge.stop();
+                engine.closeSession(sid).catch(() => {});
+                activeBridges.delete(sid);
+                _p2pEngineCache.delete(sid);
+            });
+        });
+
+        engine.on('channel-closed', (sid) => {
+            const entry = activeBridges.get(sid);
+            if (entry) { entry.bridge?.stop(); activeBridges.delete(sid); }
+            _p2pEngineCache.delete(sid);
+            if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('p2p-status', { stage: 'DISCONNECTED', sessionId: sid });
+            }
+        });
+
+        return { success: true };
+    } catch (e) {
+        console.error('[P2P] join-session error:', e);
+        return { success: false, error: e.message };
+    }
+});
+
+ipcMain.handle('p2p-stop-hosting', async (_, { sessionId }) => {
+    try {
+        const entry = activeBridges.get(sessionId);
+        if (entry) {
+            entry.bridge?.stop();
+            await entry.engine.closeSession(sessionId);
+            activeBridges.delete(sessionId);
+        }
+        const engine = _p2pEngineCache.get(sessionId);
+        if (engine) {
+            await engine.closeSession(sessionId);
+            _p2pEngineCache.delete(sessionId);
+        }
+        return { success: true };
+    } catch (e) {
+        console.error('[P2P] stop-hosting error:', e);
+        return { success: false, error: e.message };
+    }
+});
+
+// Cleanup P2P on quit
+const origQuit = app.quit;
+app.on('before-quit', () => {
+    for (const [sid, entry] of activeBridges) {
+        try { entry.bridge?.stop(); } catch (_) {}
+        try { entry.engine?.closeSession(sid); } catch (_) {}
+    }
+    activeBridges.clear();
+    _p2pEngineCache.clear();
+    try { require('node-datachannel').cleanup(); } catch (_) {}
 });

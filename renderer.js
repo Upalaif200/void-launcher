@@ -3,6 +3,7 @@
    VOID LAUNCHER — RENDERER v1.1
    ═══════════════════════════════════════════════ */
 const { ipcRenderer, shell } = require('electron');
+window.ipcRenderer = ipcRenderer;
 const fs = require('fs');
 const path = require('path');
 let skinview3d;
@@ -18,6 +19,202 @@ let editingProfileId = null;   // null = crear nuevo
 const appVersion = ipcRenderer.sendSync('get-app-version');
 document.title = `Void Launcher v${appVersion}`;
 document.querySelector('.app-name').textContent = `VOID LAUNCHER v${appVersion}`;
+
+// ─────────────────────────────────────────────
+// LOGIN / SESSION STATE
+// ─────────────────────────────────────────────
+const loginOverlay = document.getElementById('login-overlay');
+
+function showLoginOverlay() {
+    loginOverlay.style.display = 'flex';
+}
+function hideLoginOverlay() { loginOverlay.style.display = 'none'; }
+
+// ── Tab switching inside login
+document.querySelectorAll('.login-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+        document.querySelectorAll('.login-tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.login-tab-content').forEach(c => c.classList.remove('active'));
+        tab.classList.add('active');
+        document.getElementById('login-tab-' + tab.dataset.loginTab).classList.add('active');
+    });
+});
+
+function setLoginError(tab, msg) {
+    document.getElementById('login-' + tab + '-error').textContent = msg || '';
+}
+
+async function handleLoginResponse(result, tab) {
+    if (result.success) {
+        neonSession = { username: result.user.username, userId: result.user.id };
+        hideLoginOverlay();
+        cfg = ipcRenderer.sendSync('get-config');
+        updateSocialAvatar();
+        return true;
+    } else {
+        setLoginError(tab, result.error || 'Error desconocido');
+        return false;
+    }
+}
+
+// Sign In
+document.getElementById('login-signin-btn').addEventListener('click', async () => {
+    const username = document.getElementById('login-signin-username').value.trim();
+    const password = document.getElementById('login-signin-password').value;
+    if (!username || !password) { setLoginError('signin', 'Completa todos los campos'); return; }
+    setLoginError('signin', '');
+    const btn = document.getElementById('login-signin-btn');
+    btn.disabled = true; btn.textContent = 'Conectando...';
+    const result = await ipcRenderer.invoke('social-signin', { username, password });
+    btn.disabled = false; btn.textContent = 'Iniciar Sesión';
+    handleLoginResponse(result, 'signin');
+});
+
+// Sign Up
+document.getElementById('login-signup-btn').addEventListener('click', async () => {
+    const username = document.getElementById('login-signup-username').value.trim();
+    const password = document.getElementById('login-signup-password').value;
+    if (!username || !password) { setLoginError('signup', 'Completa todos los campos'); return; }
+    if (password.length < 4) { setLoginError('signup', 'Mínimo 4 caracteres'); return; }
+    setLoginError('signup', '');
+    const btn = document.getElementById('login-signup-btn');
+    btn.disabled = true; btn.textContent = 'Creando...';
+    const result = await ipcRenderer.invoke('social-register', { username, password });
+    btn.disabled = false; btn.textContent = 'Crear Cuenta';
+    handleLoginResponse(result, 'signup');
+});
+
+// Guest
+document.getElementById('login-guest-btn').addEventListener('click', async () => {
+    setLoginError('guest', '');
+    const btn = document.getElementById('login-guest-btn');
+    btn.disabled = true; btn.textContent = 'Conectando...';
+    const result = await ipcRenderer.invoke('social-create-guest');
+    btn.disabled = false; btn.textContent = 'Entrar como Invitado';
+    handleLoginResponse(result, 'guest');
+});
+
+// Login DB config
+// DB connection is built-in — status is automatic
+
+async function performLogout() {
+    try {
+        await ipcRenderer.invoke('social-signout');
+    } catch (e) {
+        console.error('[SOCIAL] Logout error:', e);
+    }
+    neonSession = null;
+    showLoginOverlay();
+}
+window.socialLogout = performLogout;
+
+async function deleteSocialAccount() {
+    if (!confirm('¿Estás seguro? Esta acción eliminará tu cuenta y todos tus datos de la base de datos de forma permanente.')) return;
+    if (!confirm('Esta acción no se puede deshacer. ¿Continuar?')) return;
+    try {
+        await ipcRenderer.invoke('social-signout-with-delete');
+    } catch (e) {
+        console.error('[SOCIAL] Delete account error:', e);
+    }
+    neonSession = null;
+    showLoginOverlay();
+    showToast('Cuenta eliminada permanentemente', 'info');
+}
+
+// Session restore on load
+(async function restoreSession() {
+    const saved = ipcRenderer.sendSync('social-get-session');
+    if (saved) {
+        const result = await ipcRenderer.invoke('social-restore-session');
+        if (result) {
+            neonSession = { username: result.username, userId: result.userId };
+            return;
+        }
+    }
+    showLoginOverlay();
+})();
+
+// ── Skin head avatar (3D isométrico front-left-top) ──
+function renderSkinHead(canvas, img, size) {
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    ctx.imageSmoothingEnabled = false;
+    const scale = size / 12;
+    const L = 5 * scale;
+    const cx = size / 2;
+    const cy = size / 2;
+    const hasHat = img.height === 64;
+    const a = 0.577; // tan(30°) — pitch ~30°
+
+    // Draw order: back → front  (top → left → front)
+
+    // Top face (skin: 8,0) — visible on top
+    ctx.save();
+    ctx.setTransform(1, -a, 1, a, cx - L, cy - L / 2);
+    ctx.drawImage(img, 8, 0, 8, 8, 0, 0, L, L);
+    ctx.restore();
+    if (hasHat) {
+        ctx.save();
+        ctx.setTransform(1, -a, 1, a, cx - L, cy - L / 2);
+        ctx.drawImage(img, 40, 0, 8, 8, 0, 0, L, L);
+        ctx.restore();
+    }
+
+    // Right face (skin: 0,8) — visible on the front-left
+    ctx.save();
+    ctx.setTransform(1, a, 0, 1, cx - L, cy - L / 2);
+    ctx.drawImage(img, 0, 8, 8, 8, 0, 0, L, L);
+    ctx.restore();
+    if (hasHat) {
+        ctx.save();
+        ctx.setTransform(1, a, 0, 1, cx - L, cy - L / 2);
+        ctx.drawImage(img, 32, 8, 8, 8, 0, 0, L, L);
+        ctx.restore();
+    }
+
+    // Front face (skin: 8,8) — visible on the front-right
+    ctx.save();
+    ctx.setTransform(1, -a, 0, 1, cx, cy);
+    ctx.drawImage(img, 8, 8, 8, 8, 0, 0, L, L);
+    ctx.restore();
+    if (hasHat) {
+        ctx.save();
+        ctx.setTransform(1, -a, 0, 1, cx, cy);
+        ctx.drawImage(img, 40, 8, 8, 8, 0, 0, L, L);
+        ctx.restore();
+    }
+}
+
+function updateSocialAvatar() {
+    const acc = cfg.accounts.find(a => a.id === cfg.activeAccountId) || cfg.accounts[0];
+    const els = [document.getElementById('social-my-avatar'), document.getElementById('main-account-avatar')].filter(Boolean);
+    if (!els.length) return;
+    if (!acc || !acc.skinPath || !fs.existsSync(acc.skinPath)) {
+        els.forEach(el => { el.innerHTML = '<svg class="icon"><use href="#icon-user"/></svg>'; });
+        return;
+    }
+    try {
+        const img = new Image();
+        img.onload = () => {
+            els.forEach(el => {
+                const size = 48;
+                const c = document.createElement('canvas');
+                renderSkinHead(c, img, size);
+                el.innerHTML = '';
+                el.style.background = 'none';
+                el.style.border = 'none';
+                el.style.borderRadius = '4px';
+                el.appendChild(c);
+                c.style.width = '100%';
+                c.style.height = '100%';
+            });
+        };
+        img.src = 'file://' + path.resolve(acc.skinPath);
+    } catch (e) {
+        els.forEach(el => { el.innerHTML = '<svg class="icon"><use href="#icon-user"/></svg>'; });
+    }
+}
 
 // ─────────────────────────────────────────────
 // AUTO-UPDATER — NOTIFICACIÓN EN UI
@@ -171,10 +368,15 @@ function navigate(viewId) {
 
     // Acciones al entrar en cada vista
     if (viewId === 'view-main') refreshMainView();
-    if (viewId === 'view-accounts') renderAccountsList();
+    if (viewId === 'view-accounts') renderNicknamesList();
     if (viewId === 'view-profiles') { renderProfilesList(); closeEditPanel(); }
     if (viewId === 'view-mods') refreshModsView();
     if (viewId === 'view-install') initInstallView();
+    if (viewId === 'view-social') {
+        cloudRenderFriendsList();
+        cloudRenderPendingList();
+        cloudRenderConversationsList();
+    }
 }
 
 document.querySelectorAll('.nav-btn[data-view]').forEach(btn => {
@@ -209,11 +411,12 @@ function refreshMainView() {
     const acc = activeAccount();
     const prof = activeProfile();
 
-    document.getElementById('main-account-name').textContent = acc?.username || 'Sin cuenta';
+    document.getElementById('main-account-name').textContent = acc?.username || 'Sin nickname';
     document.getElementById('main-profile-name').textContent = prof?.name || 'Sin perfil';
     const iconEl = document.getElementById('main-profile-icon');
     if (prof?.icon) { iconEl.textContent = prof.icon; } else { iconEl.innerHTML = icon('gamepad'); }
     document.getElementById('main-profile-version').textContent = prof?.versionId || '─';
+    updateSocialAvatar();
 
     const ram = prof?.ram || '4';
     document.getElementById('ram-slider').value = ram;
@@ -343,9 +546,9 @@ document.getElementById('noveskin-btn').addEventListener('click', () => {
 });
 
 // ─────────────────────────────────────────────
-// VISTA: CUENTAS
+// VISTA: NICKNAMES
 // ─────────────────────────────────────────────
-function renderAccountsList() {
+function renderNicknamesList() {
     cfg = ipcRenderer.sendSync('get-config');
     const grid = document.getElementById('accounts-list');
     grid.innerHTML = '';
@@ -358,11 +561,11 @@ function renderAccountsList() {
             <div class="acct-card-top">
                 <span class="acct-emoji">${icon('user')}</span>
                 <span class="acct-name">${escHtml(acc.username)}</span>
-                ${isActive ? '<span class="acct-badge">ACTIVA</span>' : ''}
+                ${isActive ? '<span class="acct-badge">ACTIVO</span>' : ''}
             </div>
             <div class="acct-actions">
-                ${!isActive ? `<button class="secondary-btn" onclick="selectAccount('${acc.id}')">Activar</button>` : ''}
-                <button class="secondary-btn uninstall-btn" onclick="removeAccount('${acc.id}')">${icon('trash')}</button>
+                ${!isActive ? `<button class="secondary-btn" onclick="selectNickname('${acc.id}')">Activar</button>` : ''}
+                <button class="secondary-btn uninstall-btn" onclick="removeNickname('${acc.id}')">${icon('trash')}</button>
             </div>`;
         grid.appendChild(card);
     });
@@ -375,23 +578,24 @@ document.getElementById('add-account-btn').addEventListener('click', () => {
     ipcRenderer.sendSync('add-account', { username: name });
     input.value = '';
     cfg = ipcRenderer.sendSync('get-config');
-    renderAccountsList();
+    renderNicknamesList();
     refreshMainView();
 });
 
-window.selectAccount = (id) => {
+window.selectNickname = (id) => {
     ipcRenderer.sendSync('set-active-account', { id });
     cfg = ipcRenderer.sendSync('get-config');
-    renderAccountsList();
+    renderNicknamesList();
     refreshMainView();
     reloadSkin();
+    updateSocialAvatar();
 };
-window.removeAccount = (id) => {
-    if (cfg.accounts.length <= 1) { alert('Debes tener al menos una cuenta.'); return; }
-    if (!confirm('¿Eliminar esta cuenta?')) return;
+window.removeNickname = (id) => {
+    if (cfg.accounts.length <= 1) { alert('Debes tener al menos un nickname.'); return; }
+    if (!confirm('¿Eliminar este nickname?')) return;
     ipcRenderer.sendSync('remove-account', { id });
     cfg = ipcRenderer.sendSync('get-config');
-    renderAccountsList();
+    renderNicknamesList();
     refreshMainView();
 };
 
@@ -1454,7 +1658,7 @@ function initSettings() {
     applyTheme();
 }
 
-// ── Auto-init when settings view is shown ──
+// ── Init settings, load social config ──
 const origNavigate2 = navigate;
 navigate = function(viewId) {
     origNavigate2(viewId);
@@ -1462,6 +1666,7 @@ navigate = function(viewId) {
         loadTheme();
         renderTypoSettings();
         renderColorSettings();
+        loadBehaviorSettings();
     }
 };
 
@@ -1493,20 +1698,14 @@ function renderWardrobe() {
             </div>`;
         grid.appendChild(card);
 
-        // Render mini skin preview
+        // Render mini 2D preview (sin WebGL)
         const canvas = card.querySelector('canvas');
         if (canvas && fs.existsSync(skin.path)) {
             try {
-                const miniViewer = new skinview3d.SkinViewer({
-                    canvas,
-                    width: 64, height: 64,
-                    skin: `file://${skin.path}`
-                });
-                miniViewer.animation = new skinview3d.IdleAnimation();
-                miniViewer.controls.enableZoom = false;
-                miniViewer.controls.enableRotate = false;
-                // Store reference for cleanup
-                card._miniViewer = miniViewer;
+                const img = new Image();
+                img.onload = () => renderSkinHead(canvas, img, 64);
+                img.onerror = () => { canvas.getContext('2d').fillStyle = '#2a1040'; canvas.getContext('2d').fillRect(0, 0, 64, 64); };
+                img.src = 'file://' + path.resolve(skin.path);
             } catch (e) {
                 console.error('[WARDROBE] Mini preview error:', e);
             }
@@ -1531,7 +1730,7 @@ document.addEventListener('click', (e) => {
     if (applyBtn) {
         const skinId = applyBtn.dataset.skinId;
         const acc = activeAccount();
-        if (!acc) { showToast('No hay cuenta activa', 'error'); return; }
+        if (!acc) { showToast('No hay nickname activo', 'error'); return; }
         ipcRenderer.sendSync('apply-skin-from-library', { skinId, accountId: acc.id });
         cfg = ipcRenderer.sendSync('get-config');
         reloadSkin();
@@ -1549,53 +1748,546 @@ document.addEventListener('click', (e) => {
 });
 
 // ─────────────────────────────────────────────
-// SOCIAL — LAN DISCOVERY
+// SOCIAL — CLOUD (Neon)
 // ─────────────────────────────────────────────
-function renderSocialPeers(peers) {
-    const list = document.getElementById('social-peer-list');
-    if (!list) return;
-    if (!peers || !peers.length) {
-        list.innerHTML = '<div class="empty-state">No se encontraron jugadores en la red local.</div>';
-        updateSocialBadge(0);
-        return;
+const socialState = {
+    friends: [],
+    presence: {},
+    pending: [],
+    unreadCounts: {},
+    conversations: [],
+    selectedChatUser: null,
+    connected: false
+};
+
+function getCloudStatusLabel(status, version) {
+    if (status === 'playing_singleplayer') {
+        return version ? `${version} - Singleplayer` : 'Jugando';
     }
-    list.innerHTML = '';
-    peers.forEach(peer => {
-        const card = document.createElement('div');
-        card.className = 'social-peer-card';
-        const timeAgo = Math.floor((Date.now() - peer.timestamp) / 1000);
-        const timeStr = timeAgo < 60 ? 'ahora' : `${Math.floor(timeAgo / 60)}m`;
-        card.innerHTML = `
-            <div class="social-peer-avatar">${icon('user')}</div>
-            <div class="social-peer-info">
-                <div class="social-peer-name">${escHtml(peer.username)}</div>
-                <div class="social-peer-meta">${escHtml(peer.version)} · ${peer.address}</div>
-            </div>
-            <div class="social-peer-time">${timeStr}</div>`;
-        list.appendChild(card);
-    });
-    updateSocialBadge(peers.length);
+    if (status === 'playing_multiplayer') {
+        return version ? `${version} - Multiplayer` : 'En servidor';
+    }
+    switch (status) {
+        case 'online': return 'En línea';
+        case 'offline': return 'Desconectado';
+        default: return status || 'Desconocido';
+    }
 }
 
-function updateSocialBadge(count) {
+function getCloudStatusDotClass(status) {
+    switch (status) {
+        case 'online': case 'playing_singleplayer': case 'playing_multiplayer': return 'online';
+        default: return 'offline';
+    }
+}
+
+// ── Render functions ──
+function cloudRenderFriendsList() {
+    const list = document.getElementById('social-friends-list');
+    if (!list) return;
+    const friends = socialState.friends;
+    const presence = socialState.presence;
+    const unread = socialState.unreadCounts || {};
+
+    if (!friends.length) {
+        list.innerHTML = '<div class="empty-state">Conéctate a una base de datos Neon para ver tus amigos.</div>';
+        return;
+    }
+
+    const online = friends.filter(f => {
+        const p = presence[f];
+        return p && p.status !== 'offline';
+    });
+    const offline = friends.filter(f => {
+        const p = presence[f];
+        return !p || p.status === 'offline';
+    });
+
+    let html = '';
+    if (online.length > 0) {
+        html += '<div class="friend-group-label">En línea (' + online.length + ')</div>';
+        online.forEach(f => { html += cloudRenderFriendCard(f, presence[f], unread[f] || 0); });
+    }
+    if (offline.length > 0) {
+        html += '<div class="friend-group-label" style="margin-top:8px;">Desconectados (' + offline.length + ')</div>';
+        offline.forEach(f => { html += cloudRenderFriendCard(f, presence[f], unread[f] || 0); });
+    }
+
+    list.innerHTML = html;
+    const badge = document.getElementById('friends-count-badge');
+    if (badge) { badge.textContent = online.length; badge.style.display = online.length > 0 ? 'flex' : 'none'; }
+}
+
+function cloudRenderFriendCard(username, presenceData, unread) {
+    const isOnline = presenceData && presenceData.status !== 'offline';
+    const statusLabel = getCloudStatusLabel(presenceData?.status, presenceData?.version);
+    const statusDot = getCloudStatusDotClass(presenceData?.status);
+
+    return `<div class="friend-card ${isOnline ? 'online' : 'offline'}" data-username="${escAttr(username)}">
+        <div class="friend-avatar">
+            <svg class="icon"><use href="#icon-user"/></svg>
+            <span class="friend-status-dot ${statusDot}"></span>
+        </div>
+        <div class="friend-info">
+            <div class="friend-name">${escHtml(username)}${unread > 0 ? ' <span class="friend-unread">' + unread + '</span>' : ''}</div>
+            <div class="friend-status-text">${statusLabel}</div>
+        </div>
+        <div class="friend-actions">
+            <button class="friend-action-btn chat" onclick="cloudOpenChat('${escAttr(username)}')" title="Chat"><svg class="icon"><use href="#icon-message"/></svg></button>
+        </div>
+    </div>`;
+}
+
+function cloudRenderConversationsList() {
+    const list = document.getElementById('chat-conv-list');
+    if (!list) return;
+    const conversations = socialState.conversations || [];
+    const presence = socialState.presence || {};
+    const unread = socialState.unreadCounts || {};
+
+    if (!conversations.length) {
+        list.innerHTML = '<div class="empty-state" style="padding:12px;font-size:11px;">Aún no tienes conversaciones.</div>';
+        return;
+    }
+
+    list.innerHTML = conversations.map(c => {
+        const p = presence[c.username] || {};
+        const isOnline = p.status && p.status !== 'offline';
+        const dotClass = isOnline ? 'online' : 'offline';
+        const preview = c.last_message ? escHtml(c.last_message.substring(0, 50)) : 'Sin mensajes';
+        const time = c.last_message_at ? new Date(c.last_message_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+        const unreadCount = unread[c.username] || 0;
+
+        return `<div class="chat-conv-item ${unreadCount > 0 ? 'has-unread' : ''}" data-username="${escAttr(c.username)}">
+            <div class="friend-avatar" style="width:28px;height:28px;flex-shrink:0;">
+                <svg class="icon"><use href="#icon-user"/></svg>
+                <span class="friend-status-dot ${dotClass}" style="width:7px;height:7px;"></span>
+            </div>
+            <div class="chat-conv-info">
+                <div class="chat-conv-name">${escHtml(c.username)}${unreadCount > 0 ? ' <span class="conv-unread-badge">' + unreadCount + '</span>' : ''}</div>
+                <div class="chat-conv-preview">${preview}</div>
+            </div>
+            <div style="font-size:9px;color:var(--text3);flex-shrink:0;align-self:flex-start;margin-top:4px;">${time}</div>
+        </div>`;
+    }).join('');
+}
+
+function cloudRenderPendingList() {
+    const list = document.getElementById('social-invitations-list');
+    if (!list) return;
+    const pending = socialState.pending;
+    if (!pending.length) {
+        list.innerHTML = '<div class="empty-state">No tienes solicitudes pendientes.</div>';
+        return;
+    }
+    list.innerHTML = pending.map(p => {
+        if (p.type === 'game-invite') {
+            return `<div class="friend-card request" data-from="${escAttr(p.from)}" data-invite-id="${escAttr(p.id)}">
+                <div class="friend-avatar" style="background:#2d1b69;"><svg class="icon"><use href="#icon-game"/></svg></div>
+                <div class="friend-info">
+                    <div class="friend-name">${escHtml(p.from)}</div>
+                    <div class="friend-status-text">Te invitó a ${escHtml(p.worldName || 'jugar')}</div>
+                </div>
+                <div class="friend-actions">
+                    <button class="friend-action-btn accept" onclick="cloudAcceptGameInvite('${escAttr(p.id)}')" title="Aceptar"><svg class="icon"><use href="#icon-check"/></svg></button>
+                </div>
+            </div>`;
+        }
+        return `<div class="friend-card request" data-from="${escAttr(p.from)}">
+            <div class="friend-avatar"><svg class="icon"><use href="#icon-user"/></svg></div>
+            <div class="friend-info">
+                <div class="friend-name">${escHtml(p.from)}</div>
+                <div class="friend-status-text">Quiere ser tu amigo</div>
+            </div>
+            <div class="friend-actions">
+                <button class="friend-action-btn accept" onclick="cloudAcceptFriend('${escAttr(p.from)}')" title="Aceptar"><svg class="icon"><use href="#icon-check"/></svg></button>
+            </div>
+        </div>`;
+    }).join('');
+}
+
+window.cloudAcceptGameInvite = async function(inviteId) {
+    const inv = socialState.pending.find(p => String(p.id) === String(inviteId));
+    const result = await ipcRenderer.invoke('social-accept-game-invite', { inviteId });
+    if (!result.success) return;
+    socialState.pending = socialState.pending.filter(p => String(p.id) !== String(inviteId));
+    cloudRenderPendingList();
+
+    if (inv?.p2p_session_id) {
+        showToast('Conectando vía P2P...', 'success', 5000);
+        const cfg = ipcRenderer.sendSync('get-config');
+        const account = cfg.accounts?.find(a => a.id === cfg.activeAccountId) || cfg.accounts?.[0];
+        const jarPath = inv.jarPath || '';
+        ipcRenderer.invoke('p2p-join-session', {
+            sessionId: inv.p2p_session_id,
+            userId: account?.id || '',
+            jarPath,
+            username: account?.username || 'Jugador'
+        });
+    } else if (inv?.serverIp) {
+        showToast(`Conectando a ${inv.serverIp}...`, 'success', 5000);
+        const cfg = ipcRenderer.sendSync('get-config');
+        const profile = cfg.profiles?.find(p => p.id === cfg.activeProfileId) || cfg.profiles?.[0];
+        const account = cfg.accounts?.find(a => a.id === cfg.activeAccountId) || cfg.accounts?.[0];
+        ipcRenderer.invoke('launch-minecraft-with-server', {
+            jarPath: null,
+            ip: inv.serverIp,
+            version: profile?.versionId || null,
+            username: account?.username || 'Jugador'
+        });
+    } else {
+        showToast('Tu amigo no está en un servidor público', 'error', 4000);
+    }
+};
+
+function cloudRenderChatMessages(username) {
+    const area = document.getElementById('chat-area');
+    const messages = document.getElementById('chat-area-messages');
+    const name = document.getElementById('chat-area-name');
+    const statusDot = document.getElementById('chat-area-status-dot');
+    const input = document.getElementById('chat-area-input-field');
+    const sendBtn = document.getElementById('chat-area-send-btn');
+
+    if (!username) {
+        area.style.display = 'none';
+        return;
+    }
+
+    area.style.display = 'flex';
+    name.textContent = username;
+    const p = socialState.presence[username];
+    statusDot.className = 'status-dot ' + (p ? getCloudStatusDotClass(p.status) : 'offline');
+
+    ipcRenderer.invoke('social-get-messages', { withUser: username }).then(msgs => {
+        if (!msgs || !msgs.length) {
+            messages.innerHTML = '<div class="empty-state" style="padding:20px;font-size:12px;">Inicia la conversación con ' + escHtml(username) + '</div>';
+        } else {
+            messages.innerHTML = msgs.map(m => {
+                const isMine = m.from_user === neonSession?.username;
+                const t = new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                return `<div class="chat-msg ${isMine ? 'mine' : 'theirs'}">
+                    <div class="chat-msg-text">${escHtml(m.content)}</div>
+                    <div class="chat-msg-meta">${t}</div>
+                </div>`;
+            }).join('');
+            messages.scrollTop = messages.scrollHeight;
+        }
+    });
+
+    input.disabled = false;
+    sendBtn.disabled = false;
+    input.placeholder = 'Escribe un mensaje...';
+}
+
+// ── Cloud social event handlers ──
+window.cloudOpenChat = function(username) {
+    socialState.selectedChatUser = username;
+    socialState.unreadCounts[username] = 0;
+    cloudRenderChatMessages(username);
+    updateCloudUnreadBadges();
+
+    document.querySelectorAll('.social-nav-btn').forEach(b => b.classList.remove('active'));
+    document.querySelector('[data-panel="chat"]')?.classList.add('active');
+    document.querySelectorAll('.social-panel').forEach(p => p.classList.remove('active'));
+    document.getElementById('panel-chat')?.classList.add('active');
+
+    updateSocialBadge();
+};
+
+window.cloudSendMessage = async function() {
+    const input = document.getElementById('chat-area-input-field');
+    const text = input.value.trim();
+    if (!text || !socialState.selectedChatUser) return;
+    try {
+        await ipcRenderer.invoke('social-send-message', {
+            toUser: socialState.selectedChatUser,
+            content: text
+        });
+    } catch (e) {
+        console.error('[CHAT] send error:', e);
+    }
+    input.value = '';
+    cloudRenderChatMessages(socialState.selectedChatUser);
+};
+
+window.cloudAddFriend = async function() {
+    const input = document.getElementById('social-friend-search');
+    const username = input.value.trim();
+    if (!username) return;
+    const result = await ipcRenderer.invoke('social-send-friend-request', { toUser: username });
+    if (result.success) {
+        input.value = '';
+        showToast('Solicitud enviada a ' + username, 'success');
+    } else {
+        showToast(result.error || 'Error al enviar solicitud', 'error');
+    }
+};
+
+window.cloudAcceptFriend = async function(fromUser) {
+    await ipcRenderer.invoke('social-accept-friend', { fromUser });
+    cloudRenderFriendsList();
+    cloudRenderPendingList();
+    showToast(fromUser + ' añadido a tus amigos', 'success');
+};
+
+window.cloudRejectFriend = async function(fromUser) {
+    await ipcRenderer.invoke('social-reject-friend', { fromUser });
+    cloudRenderPendingList();
+    showToast('Solicitud rechazada', 'info');
+};
+
+window.cloudRemoveFriend = async function(friendUser) {
+    if (!confirm('¿Eliminar a ' + friendUser + ' de tus amigos?')) return;
+    await ipcRenderer.invoke('social-remove-friend', { friendUser });
+    showToast(friendUser + ' eliminado', 'success');
+};
+
+function updateSocialConnectionStatus() {
+    const status = document.getElementById('social-connection-status');
+    if (!status) return;
+    const connected = socialState.connected;
+    status.innerHTML = connected
+        ? '<span style="color:#22c55e;">🟢 Conectado</span>'
+        : '<span style="color:#6b7280;">🔴 Desconectado</span>';
+
+    // Update sidebar bridge info
+    const cloudDot = document.getElementById('cloud-status-dot');
+    const cloudText = document.getElementById('cloud-status-text');
+    if (cloudDot && cloudText) {
+        cloudDot.className = 'bridge-dot ' + (connected ? 'online' : 'offline');
+        cloudText.textContent = connected ? 'Conectado a Neon' : 'Neon DB: Desconectado';
+    }
+}
+
+function updateCloudUnreadBadges() {
+    const total = Object.values(socialState.unreadCounts || {}).reduce((a, b) => a + b, 0);
+    const chatBadge = document.getElementById('chat-unread-badge');
+    if (chatBadge) {
+        chatBadge.textContent = total;
+        chatBadge.style.display = total > 0 ? 'flex' : 'none';
+    }
+    updateSocialBadge(total);
+}
+
+function updateSocialBadge(peerCount) {
+    const total = peerCount !== undefined ? peerCount : Object.values(socialState.unreadCounts || {}).reduce((a, b) => a + b, 0);
     const badge = document.getElementById('social-badge');
     if (!badge) return;
-    if (count > 0) {
-        badge.textContent = count;
+    const finalCount = total + (socialState.pending?.length || 0);
+    if (finalCount > 0) {
+        badge.textContent = finalCount;
         badge.style.display = 'flex';
     } else {
         badge.style.display = 'none';
     }
 }
 
-ipcRenderer.on('social-peers', (_, peers) => {
-    renderSocialPeers(peers);
-    if (socialDrawerOpen) {
-        refreshFriendsList();
-        if (activeChatFriend && socialDrawerOpen) {
-            renderChatMessages(activeChatFriend);
+// ── Message notification state ──
+const lastSeenMsg = {};
+const msgTimestamps = {};
+
+function showMessageNotification(username, text) {
+    const now = Date.now();
+    if (!msgTimestamps[username]) msgTimestamps[username] = [];
+    msgTimestamps[username] = msgTimestamps[username].filter(t => now - t < 10000);
+    msgTimestamps[username].push(now);
+
+    if (msgTimestamps[username].length > 5) {
+        ipcRenderer.invoke('show-notification', {
+            type: 'message:new',
+            data: { from: username, text: 'Enviando muchos mensajes...' }
+        });
+    } else {
+        ipcRenderer.invoke('show-notification', {
+            type: 'message:new',
+            data: { fromUsername: username, from: username, text }
+        });
+    }
+}
+
+function checkNewMessagesFor(username) {
+    ipcRenderer.invoke('social-get-messages', { withUser: username }).then(msgs => {
+        if (!msgs || !msgs.length) return;
+        const latest = msgs[msgs.length - 1];
+        if (!latest || latest.from_user === neonSession?.username) return;
+        if (lastSeenMsg[username] && latest.id === lastSeenMsg[username]) return;
+        lastSeenMsg[username] = latest.id;
+        showMessageNotification(username, latest.content);
+    }).catch(() => {});
+}
+
+process.on('unhandledRejection', (reason) => {
+    console.error('[RENDERER] Unhandled rejection:', reason);
+});
+
+// ── Cloud IPC listeners ──
+ipcRenderer.on('social-update', (_, data) => {
+    socialState.friends = data.friends || [];
+    socialState.presence = data.presence || {};
+    socialState.pending = data.pending || [];
+    socialState.unreadCounts = data.unread || {};
+    socialState.conversations = data.conversations || [];
+
+    cloudRenderFriendsList();
+    cloudRenderPendingList();
+    cloudRenderConversationsList();
+
+    const totalUnread = Object.values(socialState.unreadCounts).reduce((a, b) => a + b, 0);
+    updateSocialBadge(totalUnread);
+
+    const reqBadge = document.getElementById('invitations-badge');
+    if (reqBadge) {
+        reqBadge.textContent = socialState.pending.length;
+        reqBadge.style.display = socialState.pending.length > 0 ? 'flex' : 'none';
+    }
+
+    const chatArea = document.getElementById('chat-area');
+    const chatOpen = socialState.selectedChatUser && chatArea && chatArea.style.display !== 'none';
+    if (chatOpen) {
+        cloudRenderChatMessages(socialState.selectedChatUser);
+    }
+
+    // Check for new messages from any friend
+    for (const friend of socialState.friends) {
+        const hasUnread = (socialState.unreadCounts[friend] || 0) > 0;
+        if (!hasUnread) continue;
+        if (friend === socialState.selectedChatUser && chatOpen) continue;
+        checkNewMessagesFor(friend);
+    }
+});
+
+ipcRenderer.on('social-error', () => {
+    const status = document.getElementById('social-connection-status');
+    if (status) {
+        status.innerHTML = '<span style="color:#ef4444;">🔴 Error de conexión — <button class="retry-btn" onclick="retrySocialConnection()">Volver a Intentar</button></span>';
+    }
+    showToast('Error de conexión social', 'error');
+    socialState.connected = false;
+    updateSocialConnectionStatus();
+});
+
+ipcRenderer.on('overlay-open-chat', (_, username) => {
+    if (typeof username !== 'string') return;
+    document.querySelector('[data-panel="social"]')?.click();
+    setTimeout(() => cloudOpenChat(username), 100);
+});
+
+// ── P2P Status ──
+ipcRenderer.on('p2p-status', (_, data) => {
+    const stages = {
+        SIGNALING: 'Conectando... intercambiando señales',
+        ICE_CONNECT: 'Estableciendo ruta de red...',
+        CONNECTED: data.proxyPort
+            ? `¡Conectado! Entrando al mundo (puerto ${data.proxyPort})...`
+            : '¡Conectado!',
+        TIMEOUT: 'No se pudo conectar en 60 segundos',
+        DISCONNECTED: 'Conexión P2P perdida'
+    };
+    const msg = stages[data.stage] || data.stage;
+    if (data.stage === 'TIMEOUT' || data.stage === 'DISCONNECTED') {
+        showToast(msg, 'error', 5000);
+    } else if (data.stage === 'CONNECTED') {
+        showToast(msg, 'success', 5000);
+    } else {
+        console.log('[P2P]', msg);
+    }
+});
+
+ipcRenderer.on('p2p-auto-join', (_, data) => {
+    ipcRenderer.invoke('p2p-join-session', data).catch(e => {
+        console.error('[P2P] auto-join error:', e);
+        showToast('Error al unirse a la sesión P2P', 'error', 5000);
+    });
+});
+
+// ── Friend presence polling (System B) ──
+const friendPresenceCache = {};
+let presencePollInterval = null;
+
+function startFriendPresencePolling() {
+    if (presencePollInterval) return;
+    presencePollInterval = setInterval(async () => {
+        if (!socialState.friends.length) return;
+        const friendIds = [];
+        for (const f of socialState.friends) {
+            const data = await ipcRenderer.invoke('social-get-friend-status', { friendUsername: f })
+                .catch(() => null);
+            if (data?.id) friendIds.push(data.id);
+        }
+        if (!friendIds.length) return;
+        const rows = await ipcRenderer.invoke('get-friends-presence', { friendIds }).catch(() => []);
+        for (const row of rows) {
+            const prev = friendPresenceCache[row.username];
+            if (prev !== row.status &&
+                (row.status === 'MULTIPLAYER' || row.status === 'SINGLEPLAYER')) {
+                ipcRenderer.invoke('show-notification', {
+                    type: 'friend:in-game',
+                    data: {
+                        username: row.username,
+                        text: row.status === 'MULTIPLAYER'
+                            ? `Conectado a ${row.server_ip || 'un servidor'}`
+                            : `Jugando ${row.version || 'Minecraft'}`
+                    }
+                });
+            }
+            friendPresenceCache[row.username] = row.status;
+        }
+    }, 15000);
+}
+
+ipcRenderer.on('minecraft-state-change', (_, { userId, status, ip, version }) => {
+    const statusEl = document.getElementById('social-my-status');
+    if (statusEl) {
+        const dot = statusEl.querySelector('.status-dot');
+        const text = statusEl.querySelector('.status-text');
+        if (status === 'OFFLINE') {
+            if (dot) dot.className = 'status-dot online';
+            if (text) text.textContent = 'Conectado';
+        } else if (status === 'MULTIPLAYER') {
+            if (dot) dot.className = 'status-dot playing_multiplayer';
+            if (text) text.textContent = getCloudStatusLabel('playing_multiplayer', version);
+        } else if (status === 'SINGLEPLAYER') {
+            if (dot) dot.className = 'status-dot playing_singleplayer';
+            if (text) text.textContent = getCloudStatusLabel('playing_singleplayer', version);
         }
     }
+});
+
+ipcRenderer.on('social-connected', () => {
+    socialState.connected = true;
+    updateSocialConnectionStatus();
+    startFriendPresencePolling();
+    cfg = ipcRenderer.sendSync('get-config');
+    updateSocialAvatar();
+    // Request current user info to update sidebar profile
+    ipcRenderer.invoke('social-get-account').then(account => {
+        if (account) {
+            const nameEl = document.getElementById('social-my-name');
+            if (nameEl) nameEl.textContent = account.username;
+            const statusBadge = document.getElementById('social-my-status');
+            if (statusBadge) {
+                const dot = statusBadge.querySelector('.status-dot');
+                const text = statusBadge.querySelector('.status-text');
+                if (dot) dot.className = 'status-dot online';
+                if (text) text.textContent = 'Conectado';
+            }
+            // Update neonSession if not set
+            if (!neonSession) {
+                neonSession = { username: account.username, userId: account.id };
+            }
+        }
+    }).catch(() => {});
+});
+
+window.retrySocialConnection = function() {
+    ipcRenderer.send('social-retry');
+    document.getElementById('social-connection-status').innerHTML = '<span style="color:#f59e0b;">🟡 Reconectando...</span>';
+};
+
+ipcRenderer.on('session-restored', (_, { username }) => {
+    neonSession = { username, userId: null };
+    cfg = ipcRenderer.sendSync('get-config');
+    updateSocialAvatar();
 });
 
 // ─────────────────────────────────────────────
@@ -1629,330 +2321,246 @@ document.getElementById('toggle-suppress-updates')?.addEventListener('change', (
     ipcRenderer.send('set-suppress-updates', { value: e.target.checked });
 });
 
-// ─────────────────────────────────────────────
-// CAJÓN SOCIAL DERECHO
-// ─────────────────────────────────────────────
-let socialDrawerOpen = false;
-let activeChatFriend = null;
-let unreadCounts = {};
+// ── Search autocomplete ──
+let searchDebounce = null;
 
-const socialDrawer = document.getElementById('social-drawer');
-const socialToggleBtn = document.getElementById('social-drawer-toggle');
-const unreadBadge = document.getElementById('social-unread-badge');
+function setupSearchAutocomplete(inputId, listId) {
+    const input = document.getElementById(inputId);
+    const list = document.getElementById(listId);
+    if (!input || !list) return;
 
-function toggleSocialDrawer(forceOpen) {
-    const shouldOpen = forceOpen !== undefined ? forceOpen : !socialDrawerOpen;
-    socialDrawerOpen = shouldOpen;
-    if (shouldOpen) {
-        socialDrawer.classList.add('open');
-        document.body.classList.add('social-drawer-open');
-        try { ipcRenderer.sendSync('toggle-social-drawer', { open: true }); } catch (e) {}
-        refreshSocialDrawer();
-    } else {
-        socialDrawer.classList.remove('open');
-        document.body.classList.remove('social-drawer-open');
-        try { ipcRenderer.sendSync('toggle-social-drawer', { open: false }); } catch (e) {}
-    }
-}
-
-socialToggleBtn.addEventListener('click', () => toggleSocialDrawer());
-
-ipcRenderer.on('open-social-drawer', () => { toggleSocialDrawer(true); });
-
-document.querySelectorAll('.social-tab').forEach(tab => {
-    tab.addEventListener('click', () => {
-        document.querySelectorAll('.social-tab').forEach(t => t.classList.remove('active'));
-        document.querySelectorAll('.social-tab-content').forEach(p => p.classList.remove('active'));
-        tab.classList.add('active');
-        const panel = document.getElementById(tab.dataset.socialTab);
-        if (panel) panel.classList.add('active');
-        if (tab.dataset.socialTab === 'tab-friends') refreshFriendsList();
-        if (tab.dataset.socialTab === 'tab-requests') refreshRequestsList();
-    });
-});
-
-function refreshSocialDrawer() {
-    refreshFriendsList();
-    refreshRequestsList();
-    updateUnreadBadge();
-}
-
-function updateUnreadBadge() {
-    const total = Object.values(unreadCounts).reduce((a, b) => a + b, 0);
-    unreadBadge.textContent = total;
-    unreadBadge.style.display = total > 0 ? 'flex' : 'none';
-}
-
-function refreshFriendsList() {
-    const friends = ipcRenderer.sendSync('get-friends-list');
-    const peers = ipcRenderer.sendSync('get-social-peers');
-    const container = document.getElementById('drawer-friends-list');
-    if (!container) return;
-
-    if (!friends.length && !peers.length) {
-        container.innerHTML = '<div class="empty-state" style="padding:20px;font-size:11px;">Sin amigos aún. Jugadores en tu red local aparecen abajo.</div>';
-        return;
-    }
-
-    container.innerHTML = '';
-
-    friends.forEach(friend => {
-        const online = friend.online || peers.some(p => p.username === friend.username);
-        const status = online ? 'online' : 'offline';
-        const statusText = online ? '🟢 En línea' : '⚫ Desconectado';
-        const unread = unreadCounts[friend.username] || 0;
-        const div = document.createElement('div');
-        div.className = 'drawer-friend-item';
-        div.innerHTML = `
-            <div class="drawer-friend-avatar">
-                <svg class="icon" style="width:14px;height:14px;"><use href="#icon-user"/></svg>
-                <span class="drawer-friend-status-dot ${status}"></span>
-            </div>
-            <div class="drawer-friend-info">
-                <div class="drawer-friend-name">${escHtml(friend.username)}${unread > 0 ? ' <span style="background:#ef4444;color:#fff;font-size:9px;padding:1px 4px;border-radius:4px;">' + unread + '</span>' : ''}</div>
-                <div class="drawer-friend-state">${statusText}</div>
-            </div>
-            <button class="drawer-friend-chat-btn" onclick="openDrawerChat('${escAttr(friend.username)}')" title="Chat"><svg class="icon" style="width:13px;height:13px;"><use href="#icon-message"/></svg></button>`;
-        container.appendChild(div);
+    input.addEventListener('input', () => {
+        clearTimeout(searchDebounce);
+        const val = input.value.trim();
+        if (val.length < 1) { list.innerHTML = ''; list.style.display = 'none'; return; }
+        searchDebounce = setTimeout(async () => {
+            const users = await ipcRenderer.invoke('social-search-users', { query: val });
+            if (users.length === 0) { list.innerHTML = ''; list.style.display = 'none'; return; }
+            list.innerHTML = users.map(u =>
+                `<div class="search-suggestion" data-username="${escAttr(u.username)}">${escHtml(u.username)}</div>`
+            ).join('');
+            list.style.display = 'block';
+        }, 200);
     });
 
-    peers.filter(p => !friends.find(f => f.username === p.username)).forEach(peer => {
-        const div = document.createElement('div');
-        div.className = 'drawer-friend-item';
-        div.style.opacity = '0.6';
-        div.innerHTML = `
-            <div class="drawer-friend-avatar">
-                <svg class="icon" style="width:14px;height:14px;"><use href="#icon-user"/></svg>
-                <span class="drawer-friend-status-dot online"></span>
-            </div>
-            <div class="drawer-friend-info">
-                <div class="drawer-friend-name">${escHtml(peer.username)}</div>
-                <div class="drawer-friend-state" style="font-size:9px;">Red local</div>
-            </div>
-            <button class="drawer-friend-chat-btn" onclick="drawerSendFriendRequestTo('${escAttr(peer.username)}')" title="Añadir amigo"><svg class="icon" style="width:12px;height:12px;"><use href="#icon-plus"/></svg></button>`;
-        container.appendChild(div);
+    input.addEventListener('blur', () => {
+        setTimeout(() => { list.innerHTML = ''; list.style.display = 'none'; }, 150);
     });
-}
 
-function refreshRequestsList() {
-    const requests = ipcRenderer.sendSync('get-pending-friend-requests');
-    const container = document.getElementById('drawer-requests-list');
-    const badge = document.getElementById('requests-badge');
-    if (!container) return;
-    badge.textContent = requests.length;
-    badge.style.display = requests.length > 0 ? 'inline-flex' : 'none';
-    if (!requests.length) {
-        container.innerHTML = '<div class="empty-state" style="padding:20px;font-size:11px;">Sin solicitudes.</div>';
-        return;
-    }
-    container.innerHTML = '';
-    requests.forEach(req => {
-        const div = document.createElement('div');
-        div.className = 'drawer-friend-item';
-        div.innerHTML = `
-            <div class="drawer-friend-avatar"><svg class="icon" style="width:14px;height:14px;"><use href="#icon-user"/></svg></div>
-            <div class="drawer-friend-info">
-                <div class="drawer-friend-name">${escHtml(req.from)}</div>
-                <div class="drawer-friend-state" style="font-size:9px;">Quiere ser tu amigo</div>
-            </div>
-            <button class="drawer-friend-chat-btn" onclick="acceptFriendRequest('${escAttr(req.from)}')" title="Aceptar" style="background:rgba(34,197,94,0.15);border-color:rgba(34,197,94,0.3);color:#22c55e;"><svg class="icon" style="width:13px;height:13px;"><use href="#icon-check"/></svg></button>`;
-        container.appendChild(div);
-    });
-}
-
-// CHAT
-window.openDrawerChat = function(username) {
-    activeChatFriend = username;
-    unreadCounts[username] = 0;
-    updateUnreadBadge();
-    refreshFriendsList();
-    document.getElementById('drawer-chat-name').textContent = username;
-    const peers = ipcRenderer.sendSync('get-social-peers');
-    const online = peers.some(p => p.username === username);
-    const statusDot = document.getElementById('drawer-chat-status');
-    statusDot.className = 'drawer-chat-status-dot' + (online ? ' online' : '');
-    renderChatMessages(username);
-    document.getElementById('drawer-chat-panel').style.display = 'flex';
-    setTimeout(() => document.getElementById('drawer-chat-input').focus(), 50);
-};
-
-window.closeDrawerChat = function() {
-    activeChatFriend = null;
-    document.getElementById('drawer-chat-panel').style.display = 'none';
-};
-
-function renderChatMessages(username) {
-    const messages = ipcRenderer.sendSync('get-chat-history', { username });
-    const container = document.getElementById('drawer-chat-messages');
-    if (!container) return;
-    const myName = cfg.accounts.find(a => a.id === cfg.activeAccountId)?.username || '';
-    container.innerHTML = '';
-    if (!messages.length) {
-        container.innerHTML = '<div style="color:var(--text3);font-size:11px;text-align:center;padding:20px;">Inicia la conversación con ' + escHtml(username) + '</div>';
-        return;
-    }
-    messages.forEach(msg => {
-        const isMine = msg.from === myName;
-        const time = new Date(msg.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        const div = document.createElement('div');
-        div.className = 'chat-msg ' + (isMine ? 'mine' : 'theirs');
-        div.innerHTML = escHtml(msg.text) + '<div class="chat-msg-meta">' + (isMine ? 'Tú' : escHtml(msg.from)) + ' · ' + time + '</div>';
-        container.appendChild(div);
-    });
-    container.scrollTop = container.scrollHeight;
-}
-
-window.sendDrawerMessage = function() {
-    if (!activeChatFriend) return;
-    const input = document.getElementById('drawer-chat-input');
-    const text = input.value.trim();
-    if (!text) return;
-    ipcRenderer.sendSync('send-chat-message', { to: activeChatFriend, text });
-    input.value = '';
-    renderChatMessages(activeChatFriend);
-};
-
-window.drawerSendFriendRequest = function() {
-    const input = document.getElementById('drawer-friend-input');
-    const username = input.value.trim();
-    if (!username) return;
-    ipcRenderer.sendSync('send-friend-request', { toUsername: username });
-    input.value = '';
-    showToast('Solicitud enviada a ' + username, 'success');
-};
-
-window.drawerSendFriendRequestTo = function(username) {
-    ipcRenderer.sendSync('send-friend-request', { toUsername: username });
-    showToast('Solicitud enviada a ' + username, 'success');
-};
-
-window.acceptFriendRequest = function(fromUsername) {
-    ipcRenderer.sendSync('accept-friend-request', { fromUsername });
-    cfg = ipcRenderer.sendSync('get-config');
-    refreshRequestsList();
-    refreshFriendsList();
-    showToast(fromUsername + ' añadido a tus amigos', 'success');
-};
-
-// ─────────────────────────────────────────────
-// COSMÉTICOS 3D EN EL ARMARIO
-// ─────────────────────────────────────────────
-let cosmetics3d = ipcRenderer.sendSync('get-cosmetics-3d');
-let cosmeticTints = { cape: '#ffffff', hat: '#ffffff', wings: '#ffffff' };
-
-const COSMETIC_LABELS = {
-    cape: { emoji: '\u{1F6B8}', label: 'Capa', sub: 'Plano detrás del torso' },
-    hat: { emoji: '\u{1F3A9}', label: 'Sombrero', sub: 'Overlay en la cabeza' },
-    wings: { emoji: '\u{1FABD}', label: 'Alas', sub: 'Paneles en los hombros' }
-};
-
-function renderCosmeticsPanel() {
-    let panel = document.getElementById('cosmetics-panel');
-    if (panel) { updateCosmeticSlots(); return; }
-    const wardrobeSection = document.getElementById('view-wardrobe');
-    if (!wardrobeSection) return;
-    panel = document.createElement('div');
-    panel.id = 'cosmetics-panel';
-    panel.className = 'cosmetics-slots-panel';
-    panel.style.marginTop = '16px';
-    panel.innerHTML = `
-        <h3>\u{1F3A8} Cosméticos 3D</h3>
-        <p style="font-size:10px;color:var(--text2);margin-bottom:12px;">Capa, sombrero y alas visibles en el visor 3D del launcher.</p>
-        ${['cape','hat','wings'].map(key => {
-            const info = COSMETIC_LABELS[key];
-            const hasCos = cosmetics3d[key];
-            return '<div class="cosmetic-slot ' + (hasCos ? 'has-cosmetic' : '') + '" id="slot-' + key + '" onclick="openCosmeticPicker(\'' + key + '\')">' +
-                '<div class="cosmetic-slot-icon">' + info.emoji + '</div>' +
-                '<div class="cosmetic-slot-info">' +
-                '<div class="cosmetic-slot-name">' + info.label + '</div>' +
-                '<div class="cosmetic-slot-sub">' + (hasCos ? '\u2713 Activo' : info.sub) + '</div></div>' +
-                (hasCos ? '<button class="cosmetic-slot-remove" onclick="removeCosmetic(event,\'' + key + '\')">\u00d7</button>' : '') + '</div>';
-        }).join('')}
-        <div class="cosmetic-tint-row"><label>Tinte de capa</label><input type="color" id="cape-tint" value="${cosmeticTints.cape}" onchange="applyCosmeticTint('cape',this.value)"></div>
-        <div class="outfit-presets"><h4>Presets de outfit</h4><div class="outfit-preset-list"><button class="outfit-preset-btn" onclick="saveOutfitPreset()">+ Guardar</button><div id="preset-list"></div></div></div>`;
-    wardrobeSection.appendChild(panel);
-    loadOutfitPresets();
-}
-
-function updateCosmeticSlots() {
-    ['cape','hat','wings'].forEach(key => {
-        const slot = document.getElementById('slot-' + key);
-        if (!slot) return;
-        const hasCos = !!cosmetics3d[key];
-        slot.className = 'cosmetic-slot ' + (hasCos ? 'has-cosmetic' : '');
-        const sub = slot.querySelector('.cosmetic-slot-sub');
-        if (sub) sub.textContent = hasCos ? '\u2713 Activo' : COSMETIC_LABELS[key].sub;
-        const existing = slot.querySelector('.cosmetic-slot-remove');
-        if (hasCos && !existing) {
-            const btn = document.createElement('button');
-            btn.className = 'cosmetic-slot-remove';
-            btn.innerHTML = '\u00d7';
-            btn.onclick = (e) => removeCosmetic(e, key);
-            slot.appendChild(btn);
-        } else if (!hasCos && existing) {
-            existing.remove();
+    list.addEventListener('click', (e) => {
+        const item = e.target.closest('.search-suggestion');
+        if (item) {
+            input.value = item.dataset.username;
+            list.innerHTML = '';
+            list.style.display = 'none';
         }
     });
 }
 
-window.openCosmeticPicker = async (slotKey) => {
-    const filePath = await ipcRenderer.invoke('open-skin-dialog');
-    if (!filePath) return;
-    cosmetics3d[slotKey] = filePath;
-    ipcRenderer.sendSync('save-cosmetics-3d', cosmetics3d);
-    updateCosmeticSlots();
-    applyCosmeticTo3DViewer(slotKey, filePath);
-    showToast(COSMETIC_LABELS[slotKey].label + ' aplicado', 'success');
-};
+setupSearchAutocomplete('social-friend-search', 'social-search-results');
 
-window.removeCosmetic = (e, slotKey) => {
-    e.stopPropagation();
-    cosmetics3d[slotKey] = null;
-    ipcRenderer.sendSync('save-cosmetics-3d', cosmetics3d);
-    updateCosmeticSlots();
-    applyCosmeticTo3DViewer(slotKey, null);
-    showToast(COSMETIC_LABELS[slotKey].label + ' eliminado', 'success');
-};
+// ── Social navigation: panel switching ──
+document.querySelectorAll('.social-nav-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        const panel = btn.dataset.panel;
+        document.querySelectorAll('.social-nav-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        document.querySelectorAll('.social-panel').forEach(p => p.classList.remove('active'));
+        const target = document.getElementById('panel-' + panel);
+        if (target) target.classList.add('active');
+    });
+});
 
-window.applyCosmeticTint = (slotKey, color) => {
-    cosmeticTints[slotKey] = color;
-    if (window.__setCosmeticTint) window.__setCosmeticTint(slotKey, color);
-};
+// ── Social chat: send on Enter / button click ──
+document.getElementById('chat-area-input-field')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') cloudSendMessage();
+});
+document.getElementById('chat-area-send-btn')?.addEventListener('click', cloudSendMessage);
 
-function applyCosmeticTo3DViewer(slotKey, texturePath) {
-    if (window.__setCosmeticTexture) {
-        window.__setCosmeticTexture(slotKey, texturePath ? 'file://' + texturePath : null);
+// ── Social conversations list: click to open chat ──
+document.getElementById('chat-conv-list')?.addEventListener('click', (e) => {
+    const item = e.target.closest('.chat-conv-item');
+    if (item) {
+        cloudOpenChat(item.dataset.username);
+        // Switch to the chat panel
+        document.querySelector('[data-panel="chat"]')?.click();
     }
+});
+
+// ── Social friend search: Enter key ──
+document.getElementById('social-friend-search')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') cloudAddFriend();
+});
+
+// ─────────────────────────────────────────────
+// EDITOR DE SKIN 3D (Nova-Style)
+// ─────────────────────────────────────────────
+let skinEditorActive = false;
+let skinEditorInstance = null;
+
+const EDITOR_TOOLS = ['pencil', 'brush', 'bucket', 'eyedropper', 'eraser'];
+
+function openSkinEditor() {
+    skinEditorActive = true;
+    const container = document.getElementById('wardrobe-grid');
+    const actions = document.querySelector('.wardrobe-actions');
+    if (container) container.style.display = 'none';
+    if (actions) actions.style.display = 'none';
+
+    let editorEl = document.getElementById('skin-editor-root');
+    if (editorEl) { editorEl.style.display = 'flex'; return; }
+
+    editorEl = document.createElement('div');
+    editorEl.id = 'skin-editor-root';
+    editorEl.className = 'skin-editor-root';
+    editorEl.innerHTML = `
+        <div class="editor-toolbar">
+            <button class="editor-btn" onclick="closeSkinEditor()" title="Volver al armario"><svg class="icon"><use href="#icon-arrow-up"/></svg></button>
+            <span class="editor-title">EDITOR DE SKIN</span>
+            <div style="flex:1"></div>
+            <button class="editor-btn" onclick="editorUndo()" title="Deshacer"><svg class="icon"><use href="#icon-refresh"/></svg></button>
+            <button class="editor-btn" onclick="editorRedo()" title="Rehacer"><svg class="icon"><use href="#icon-refresh"/></svg></button>
+            <button id="editor-import-btn" class="editor-btn" title="Importar PNG"><svg class="icon"><use href="#icon-folder"/></svg></button>
+            <button id="editor-save-btn" class="primary-btn" style="padding:6px 14px;font-size:11px;"><svg class="icon"><use href="#icon-save"/></svg> Guardar</button>
+        </div>
+        <div class="editor-body">
+            <div class="editor-sidebar-left">
+                <div class="editor-tools-group">
+                    <label>HERRAMIENTAS</label>
+                    <div class="editor-tools-grid">
+                        <button class="editor-tool active" data-tool="pencil" title="Lápiz">✏️</button>
+                        <button class="editor-tool" data-tool="brush" title="Pincel">🖌️</button>
+                        <button class="editor-tool" data-tool="bucket" title="Cubo de pintura">💉</button>
+                        <button class="editor-tool" data-tool="eyedropper" title="Cuentagotas">💧</button>
+                        <button class="editor-tool" data-tool="eraser" title="Borrador">🧹</button>
+                    </div>
+                </div>
+                <div class="editor-colors-group">
+                    <label>COLOR</label>
+                    <div class="editor-color-picker-row">
+                        <input type="color" id="editor-color-picker" value="#ff6600">
+                        <input type="text" id="editor-color-hex" value="#ff6600" maxlength="7">
+                    </div>
+                    <div class="editor-swatches" id="editor-swatches">
+                        ${['#ff0000','#ff6600','#ffdd00','#00cc44','#0066ff','#8800ff','#ffffff','#888888','#000000'].map(c => `<div class="editor-swatch" style="background:${c}" data-color="${c}"></div>`).join('')}
+                    </div>
+                </div>
+                <div class="editor-brush-size-group">
+                    <label>TAMAÑO: <span id="editor-brush-size-label">1</span></label>
+                    <input type="range" id="editor-brush-size" min="1" max="8" value="1" step="1">
+                </div>
+                <div class="editor-layers-group">
+                    <label>CAPAS <span style="font-size:9px;color:var(--text2);font-weight:400;">(doble clic para activar)</span></label>
+                    <label class="editor-layer-row active-layer" data-layer="inner"><input type="checkbox" id="editor-layer-inner" checked> <span>Inner Layer</span></label>
+                    <label class="editor-layer-row" data-layer="outer"><input type="checkbox" id="editor-layer-outer" checked> <span>Outer Layer</span></label>
+                </div>
+                <div class="editor-isolate-group">
+                    <label>AISLAR PARTE</label>
+                    <button class="editor-isolate-btn active" data-part="all">Todo</button>
+                    <button class="editor-isolate-btn" data-part="head">Cabeza</button>
+                    <button class="editor-isolate-btn" data-part="body">Torso</button>
+                    <button class="editor-isolate-btn" data-part="leftArm">Brazo I</button>
+                    <button class="editor-isolate-btn" data-part="rightArm">Brazo D</button>
+                    <button class="editor-isolate-btn" data-part="leftLeg">Pierna I</button>
+                    <button class="editor-isolate-btn" data-part="rightLeg">Pierna D</button>
+                </div>
+            </div>
+            <div id="editor-canvas-wrap" class="editor-canvas-wrap"></div>
+        </div>`;
+
+    document.getElementById('view-wardrobe').appendChild(editorEl);
+
+    document.querySelectorAll('.editor-tool').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('.editor-tool').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            if (skinEditorInstance) skinEditorInstance.setTool(btn.dataset.tool);
+        });
+    });
+
+    document.querySelectorAll('.editor-swatch').forEach(el => {
+        el.addEventListener('click', () => {
+            const color = el.dataset.color;
+            document.getElementById('editor-color-picker').value = color;
+            document.getElementById('editor-color-hex').value = color;
+            if (skinEditorInstance) skinEditorInstance.setColor(color);
+        });
+    });
+
+    document.getElementById('editor-color-picker').addEventListener('input', (e) => {
+        document.getElementById('editor-color-hex').value = e.target.value;
+        if (skinEditorInstance) skinEditorInstance.setColor(e.target.value);
+    });
+
+    document.getElementById('editor-color-hex').addEventListener('change', (e) => {
+        let v = e.target.value.trim();
+        if (/^#[0-9a-f]{6}$/i.test(v)) {
+            document.getElementById('editor-color-picker').value = v;
+            if (skinEditorInstance) skinEditorInstance.setColor(v);
+        }
+    });
+
+    document.getElementById('editor-brush-size').addEventListener('input', (e) => {
+        document.getElementById('editor-brush-size-label').textContent = e.target.value;
+        if (skinEditorInstance) skinEditorInstance.setBrushSize(parseInt(e.target.value));
+    });
+
+    document.querySelectorAll('.editor-isolate-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('.editor-isolate-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            if (skinEditorInstance) skinEditorInstance.isolatePart(btn.dataset.part);
+        });
+    });
+
+    document.querySelectorAll('.editor-layer-row').forEach(row => {
+        const cb = row.querySelector('input[type="checkbox"]');
+        cb.addEventListener('change', (e) => {
+            if (skinEditorInstance) skinEditorInstance.toggleLayer(row.dataset.layer, e.target.checked);
+        });
+        row.addEventListener('dblclick', () => {
+            document.querySelectorAll('.editor-layer-row').forEach(r => r.classList.remove('active-layer'));
+            row.classList.add('active-layer');
+            if (skinEditorInstance) skinEditorInstance.setActiveLayer(row.dataset.layer);
+        });
+    });
+
+    document.getElementById('editor-import-btn').addEventListener('click', async () => {
+        const filePath = await ipcRenderer.invoke('open-skin-dialog');
+        if (!filePath) return;
+        if (skinEditorInstance) skinEditorInstance.importSkin(filePath);
+    });
+
+    document.getElementById('editor-save-btn').addEventListener('click', async () => {
+        if (!skinEditorInstance) return;
+        await skinEditorInstance.exportSkin();
+        renderWardrobe();
+    });
+
+    requestAnimationFrame(() => {
+        const canvasWrap = document.getElementById('editor-canvas-wrap');
+        if (!canvasWrap) return;
+        const cfgLocal = ipcRenderer.sendSync('get-config');
+        const acc = cfgLocal.accounts.find(a => a.id === cfgLocal.activeAccountId) || cfgLocal.accounts[0];
+        const skinPath = acc?.skinPath || null;
+        skinEditorInstance = createSkinEditor(canvasWrap, skinPath);
+    });
 }
 
-function saveOutfitPreset() {
-    const name = prompt('Nombre del preset:');
-    if (!name) return;
-    const presets = JSON.parse(localStorage.getItem('voidOutfitPresets') || '[]');
-    presets.push({ name, cosmetics: { ...cosmetics3d }, tints: { ...cosmeticTints }, ts: Date.now() });
-    localStorage.setItem('voidOutfitPresets', JSON.stringify(presets));
-    loadOutfitPresets();
-    showToast('Preset "' + name + '" guardado', 'success');
-}
-
-function loadOutfitPresets() {
-    const list = document.getElementById('preset-list');
-    if (!list) return;
-    const presets = JSON.parse(localStorage.getItem('voidOutfitPresets') || '[]');
-    list.innerHTML = presets.map((p, i) => '<button class="outfit-preset-btn" onclick="applyOutfitPreset(' + i + ')">' + escHtml(p.name) + '</button>').join('');
-}
-
-window.applyOutfitPreset = (i) => {
-    const presets = JSON.parse(localStorage.getItem('voidOutfitPresets') || '[]');
-    const preset = presets[i];
-    if (!preset) return;
-    cosmetics3d = { ...preset.cosmetics };
-    cosmeticTints = { ...preset.tints };
-    ipcRenderer.sendSync('save-cosmetics-3d', cosmetics3d);
-    updateCosmeticSlots();
-    ['cape','hat','wings'].forEach(k => applyCosmeticTo3DViewer(k, cosmetics3d[k]));
-    showToast('Outfit "' + preset.name + '" aplicado', 'success');
+window.closeSkinEditor = function() {
+    skinEditorActive = false;
+    if (skinEditorInstance) { skinEditorInstance.destroy(); skinEditorInstance = null; }
+    const editorEl = document.getElementById('skin-editor-root');
+    if (editorEl) editorEl.style.display = 'none';
+    const container = document.getElementById('wardrobe-grid');
+    const actions = document.querySelector('.wardrobe-actions');
+    if (container) container.style.display = 'grid';
+    if (actions) actions.style.display = 'flex';
+    renderWardrobe();
 };
+
+window.editorUndo = () => { if (skinEditorInstance) skinEditorInstance.undo(); };
+window.editorRedo = () => { if (skinEditorInstance) skinEditorInstance.redo(); };
 
 // ─────────────────────────────────────────────
 // OVERRIDE NAVIGATE FOR NEW VIEWS
@@ -1960,14 +2568,15 @@ window.applyOutfitPreset = (i) => {
 const origNavigate3 = navigate;
 navigate = function(viewId) {
     origNavigate3(viewId);
-    if (viewId === 'view-wardrobe') { renderWardrobe(); renderCosmeticsPanel(); }
-    if (viewId === 'view-social') {
-        renderSocialPeers(ipcRenderer.sendSync('get-social-peers'));
+    if (viewId === 'view-wardrobe') {
+        if (!skinEditorActive) { renderWardrobe(); }
     }
-    if (viewId === 'view-settings') {
-        loadBehaviorSettings();
+    if (viewId === 'view-social') {
+        cloudRenderFriendsList();
+        cloudRenderPendingList();
     }
 };
 
 // Initialize unread badge on load
-updateUnreadBadge();
+const initialUnread = Object.values(socialState.unreadCounts || {}).reduce((a, b) => a + b, 0);
+updateSocialBadge(initialUnread);
