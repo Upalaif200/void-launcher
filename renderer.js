@@ -24,6 +24,7 @@ document.querySelector('.app-name').textContent = `VOID LAUNCHER v${appVersion}`
 // LOGIN / SESSION STATE
 // ─────────────────────────────────────────────
 const loginOverlay = document.getElementById('login-overlay');
+let neonSession = null;
 
 function showLoginOverlay() {
     loginOverlay.style.display = 'flex';
@@ -2288,6 +2289,7 @@ ipcRenderer.on('session-restored', (_, { username }) => {
     neonSession = { username, userId: null };
     cfg = ipcRenderer.sendSync('get-config');
     updateSocialAvatar();
+    hideLoginOverlay();
 });
 
 // ─────────────────────────────────────────────
