@@ -74,7 +74,7 @@
     "release": "node scripts/release.js",
     "postinstall": "node scripts/generate-icon.js",
     "generate-manifest": "node scripts/generate-manifest.js",
-    "build": "electron-builder --win",
+    "build": "electron-builder --win --publish never",
     "start": "electron .",
     "publish": "electron-builder --win --publish always"
   },
