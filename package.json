@@ -15,8 +15,15 @@
       "build/icon.png",
       "build/icon.ico",
       "mod-updater.js",
+      "notification-manager.js",
+      "p2p-bridge.js",
+      "p2p-engine.js",
+      "preload.js",
+      "server-admin.html",
       "social-db.js",
       "social-manager.js",
+      "social-overlay.html",
+      "social-overlay.js",
       "social-p2p.js"
     ],
     "nsis": {
@@ -87,5 +94,5 @@
     "sharp": "^0.34.5"
   },
   "repository": "Upalaif200/void-launcher",
-  "version": "1.3.0"
+  "version": "1.3.1"
 }
