@@ -27,16 +27,14 @@ try {
     require('dotenv').config({ path: path.join(ud, '.env') });
 } catch (_) {}
 
-const REQUIRED_ENV = ['DATABASE_URL'];
-const missing = REQUIRED_ENV.filter(key => !process.env[key]);
-if (missing.length > 0) {
-  console.error('[Security] Missing required environment variables:', missing.join(', '));
-  process.exit(1);
+// If DATABASE_URL is not set, cloud features will be disabled gracefully
+if (!process.env.DATABASE_URL) {
+  console.warn('[Security] DATABASE_URL not set — cloud/social features disabled');
 }
 
 // Consume sensitive env vars into local scope, then wipe from process.env
 // so renderer (with nodeIntegration) cannot access them
-const NEON_DB_URL = process.env.DATABASE_URL;
+const NEON_DB_URL = process.env.DATABASE_URL || null;
 const CURSEFORGE_API_KEY = process.env.CURSEFORGE_API_KEY || '$2a$10$fVunHNo8wbeBbe.sU9/uU.U/9U9U9U9U9U9U9U9U9U9U9U9U9U9U9';
 delete process.env.DATABASE_URL;
 delete process.env.CURSEFORGE_API_KEY;
@@ -197,6 +195,10 @@ function deleteSession() {
 // SOCIAL MANAGER — CLOUD DB (Neon)
 // ─────────────────────────────────────────────
 function startSocialManager(connectionString) {
+    if (!connectionString) {
+        console.warn('[SOCIAL] No connection string — cloud features disabled');
+        return false;
+    }
     try {
         socialDb = new SocialDB();
         const res = socialDb.connect(connectionString);
