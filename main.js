@@ -27,14 +27,9 @@ try {
     require('dotenv').config({ path: path.join(ud, '.env') });
 } catch (_) {}
 
-// If DATABASE_URL is not set, cloud features will be disabled gracefully
-if (!process.env.DATABASE_URL) {
-  console.warn('[Security] DATABASE_URL not set — cloud/social features disabled');
-}
-
-// Consume sensitive env vars into local scope, then wipe from process.env
-// so renderer (with nodeIntegration) cannot access them
-const NEON_DB_URL = process.env.DATABASE_URL || null;
+// Environment variable overrides the built-in connection string
+// (env vars are wiped from process.env after consumption for security)
+const NEON_DB_URL = process.env.DATABASE_URL || 'postgresql://neondb_owner:npg_dbq9UtMxcHK3@ep-nameless-cherry-acuxeh1m-pooler.sa-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require';
 const CURSEFORGE_API_KEY = process.env.CURSEFORGE_API_KEY || '$2a$10$fVunHNo8wbeBbe.sU9/uU.U/9U9U9U9U9U9U9U9U9U9U9U9U9U9U9';
 delete process.env.DATABASE_URL;
 delete process.env.CURSEFORGE_API_KEY;
@@ -848,7 +843,7 @@ app.whenReady().then(() => {
                 responseHeaders: {
                     ...details.responseHeaders,
                     'Content-Security-Policy': [
-                        "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https: wss:; font-src 'self' data:"
+                        "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: https:; connect-src 'self' https: wss:; font-src 'self' data: https://fonts.gstatic.com"
                     ]
                 }
             });
