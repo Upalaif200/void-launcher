@@ -14,6 +14,9 @@ const SocialManager = require('./social-manager');
 const NotificationManager = require('./notification-manager');
 const P2PEngine = require('./p2p-engine');
 const P2PBridge = require('./p2p-bridge');
+const { encryptAndSave, loadAndDecrypt, deleteFile } = require('./src/secure-storage');
+const { sanitizeString, sanitizeBoolean, sanitizeId, sanitizePath, sanitizePayload } = require('./src/validate-ipc');
+const { verifyAppIntegrity, verifyAppOrigin } = require('./src/integrity');
 
 // ── Environment ──
 try { require('dotenv').config(); } catch (_) { /* dotenv optional */ }
@@ -24,6 +27,13 @@ if (missing.length > 0) {
   console.error('[Security] Missing required environment variables:', missing.join(', '));
   process.exit(1);
 }
+
+// Consume sensitive env vars into local scope, then wipe from process.env
+// so renderer (with nodeIntegration) cannot access them
+const NEON_DB_URL = process.env.DATABASE_URL;
+const CURSEFORGE_API_KEY = process.env.CURSEFORGE_API_KEY || '$2a$10$fVunHNo8wbeBbe.sU9/uU.U/9U9U9U9U9U9U9U9U9U9U9U9U9U9U9';
+delete process.env.DATABASE_URL;
+delete process.env.CURSEFORGE_API_KEY;
 
 process.on('uncaughtException', (err) => {
   console.error('[CRASH] uncaughtException:', err);
@@ -53,76 +63,51 @@ function generateId() {
 
 function loadConfig() {
     if (configCache) return configCache;
-    if (!fs.existsSync(configPath)) {
-        const id = generateId();
-        const profileId = generateId();
-        configCache = {
-            accounts: [{ id, username: 'Jugador', skinPath: '' }],
-            activeAccountId: id,
-            profiles: [{
-                id: profileId,
-                name: 'Default',
-                icon: '⛏️',
-                versionId: '',
-                gameDirectory: '',
-                ram: '4',
-                jvmArgs: '',
-                mods: []
-            }],
-            activeProfileId: profileId,
-            appVersion: '1.1.0',
-            cosmetics: { keystrokes: false, dynamicFov: true, damageTilt: true },
-            skinLibrary: [],
-            minimizeToTray: true,
-            suppressUpdateNotifications: false
-        };
-        fs.writeFileSync(configPath, JSON.stringify(configCache, null, 2));
-        return configCache;
+    const raw = loadAndDecrypt(configPath);
+    if (raw) {
+        let cfg = raw;
+        if (!cfg.cosmetics) cfg.cosmetics = { keystrokes: false, dynamicFov: true, damageTilt: true };
+        if (!cfg.accounts) {
+            const id = generateId();
+            const profileId = generateId();
+            cfg = {
+                accounts: [{ id, username: cfg.username || 'Jugador', skinPath: cfg.skinPath || '' }],
+                activeAccountId: id,
+                profiles: [{
+                    id: profileId, name: 'Default', icon: '⛏️', versionId: '',
+                    gameDirectory: '', ram: cfg.ram || '4', jvmArgs: '', mods: []
+                }],
+                activeProfileId: profileId, appVersion: '1.1.0', skinLibrary: [],
+                minimizeToTray: true, suppressUpdateNotifications: false
+            };
+        }
+        if (!cfg.skinLibrary) cfg.skinLibrary = [];
+        if (cfg.minimizeToTray === undefined) cfg.minimizeToTray = true;
+        if (cfg.suppressUpdateNotifications === undefined) cfg.suppressUpdateNotifications = false;
+        configCache = cfg;
+        return cfg;
     }
 
-    let cfg = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-
-    if (!cfg.cosmetics) {
-        cfg.cosmetics = { keystrokes: false, dynamicFov: true, damageTilt: true };
-        fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2));
-    }
-
-    if (!cfg.accounts) {
-        const id = generateId();
-        const profileId = generateId();
-        cfg = {
-            accounts: [{ id, username: cfg.username || 'Jugador', skinPath: cfg.skinPath || '' }],
-            activeAccountId: id,
-            profiles: [{
-                id: profileId,
-                name: 'Default',
-                icon: '⛏️',
-                versionId: '',
-                gameDirectory: '',
-                ram: cfg.ram || '4',
-                jvmArgs: '',
-                mods: []
-            }],
-            activeProfileId: profileId,
-            appVersion: '1.1.0',
-            skinLibrary: [],
-            minimizeToTray: true,
-            suppressUpdateNotifications: false
-        };
-        fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2));
-    }
-
-    if (!cfg.skinLibrary) cfg.skinLibrary = [];
-    if (cfg.minimizeToTray === undefined) cfg.minimizeToTray = true;
-    if (cfg.suppressUpdateNotifications === undefined) cfg.suppressUpdateNotifications = false;
-
-    configCache = cfg;
-    return cfg;
+    const id = generateId();
+    const profileId = generateId();
+    configCache = {
+        accounts: [{ id, username: 'Jugador', skinPath: '' }],
+        activeAccountId: id,
+        profiles: [{
+            id: profileId, name: 'Default', icon: '⛏️', versionId: '',
+            gameDirectory: '', ram: '4', jvmArgs: '', mods: []
+        }],
+        activeProfileId: profileId, appVersion: '1.1.0',
+        cosmetics: { keystrokes: false, dynamicFov: true, damageTilt: true },
+        skinLibrary: [], minimizeToTray: true, suppressUpdateNotifications: false
+    };
+    encryptAndSave(configPath, configCache);
+    return configCache;
 }
 
 function saveConfig(cfg) {
     configCache = cfg;
-    fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2));
+    encryptAndSave(configPath, cfg);
 }
 
 function invalidateConfig() {
@@ -152,6 +137,8 @@ function createWindow() {
             nodeIntegration: true,
             contextIsolation: false,
             webviewTag: true,
+            webSecurity: true,
+            allowRunningInsecureContent: false,
         },
         backgroundColor: '#0a0a0a'
     });
@@ -184,20 +171,20 @@ function setupTray(win) {
 }
 
 // ── Neon connection — from environment ──
-const NEON_DB_URL = process.env.DATABASE_URL;
+// NEON_DB_URL declared at top of file (env section)
 
 // Session persistence
 function getSessionPath() {
     return path.join(userDataPath, 'session.json');
 }
 function saveSession(session) {
-    fs.writeFileSync(getSessionPath(), JSON.stringify(session, null, 2), 'utf8');
+    encryptAndSave(getSessionPath(), session);
 }
 function loadSession() {
-    try { return JSON.parse(fs.readFileSync(getSessionPath(), 'utf8')); } catch { return null; }
+    return loadAndDecrypt(getSessionPath());
 }
 function deleteSession() {
-    try { fs.unlinkSync(getSessionPath()); } catch {}
+    deleteFile(getSessionPath());
 }
 
 // ─────────────────────────────────────────────
@@ -395,6 +382,7 @@ function emitMinecraftState(userId, status, ip, version) {
 
 // ── Process Monitor ──
 ipcMain.handle('launch-minecraft', async (_, { jarPath, version, username, jvmArgs }) => {
+    jarPath = sanitizePath(jarPath); version = sanitizeString(version, 50); username = sanitizeString(username, 50); jvmArgs = sanitizeString(jvmArgs, 1000);
     const userId = socialManager?.getUserId() || 'default';
     if (activeProcesses.has(userId)) {
         return { success: false, error: 'Ya hay un proceso activo para este usuario' };
@@ -458,6 +446,7 @@ ipcMain.handle('launch-minecraft', async (_, { jarPath, version, username, jvmAr
 });
 
 ipcMain.handle('launch-minecraft-with-server', async (_, { jarPath, ip, version, username }) => {
+    jarPath = sanitizePath(jarPath); ip = sanitizeString(ip, 100); version = sanitizeString(version, 50); username = sanitizeString(username, 50);
     const userId = socialManager?.getUserId() || 'default';
     if (activeProcesses.has(userId)) {
         return { success: false, error: 'Ya hay un proceso activo' };
@@ -524,6 +513,7 @@ ipcMain.handle('stop-minecraft', async (_) => {
 });
 
 ipcMain.handle('update-presence', async (_, { status, serverIp, version }) => {
+    status = sanitizeString(status, 50); serverIp = sanitizeString(serverIp, 100); version = sanitizeString(version, 50);
     try {
         const userId = socialManager?.getUserId();
         if (!userId) return { success: false, error: 'No hay sesión' };
@@ -536,6 +526,7 @@ ipcMain.handle('update-presence', async (_, { status, serverIp, version }) => {
 });
 
 ipcMain.handle('get-friends-presence', async (_, { friendIds }) => {
+    if (!Array.isArray(friendIds)) return [];
     if (!socialDb || !socialDb.connected) return [];
     try {
         const res = await socialDb.query(
@@ -572,6 +563,7 @@ async function ensureOnlineModeFalse(minecraftDir) {
 }
 
 ipcMain.handle('start-local-server', async (_, { serverJarPath, minecraftDir }) => {
+    serverJarPath = sanitizePath(serverJarPath); minecraftDir = sanitizePath(minecraftDir);
     if (serverProcess) {
         return { success: false, error: 'El servidor ya está corriendo' };
     }
@@ -718,6 +710,8 @@ function createOverlayWindow() {
         webPreferences: {
             nodeIntegration: true,
             contextIsolation: false,
+            webSecurity: true,
+            allowRunningInsecureContent: false,
         },
         backgroundColor: '#0f0f0f'
     });
@@ -762,7 +756,7 @@ function createAdminWindow() {
     adminWindow = new BrowserWindow({
         width: 860, height: 600, minWidth: 700, minHeight: 450,
         title: 'Administración del Servidor',
-        webPreferences: { nodeIntegration: false, contextIsolation: true, preload: path.join(__dirname, 'preload.js') },
+        webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true, allowRunningInsecureContent: false, preload: path.join(__dirname, 'preload.js') },
         backgroundColor: '#0d1117', show: false
     });
     adminWindow.loadFile('server-admin.html');
@@ -817,7 +811,44 @@ function parseServerLine(line) {
     broadcastToAdmin('admin-log', { text: line, ts: Date.now() });
 }
 
+// ── Single-instance lock ──
+const gotTheLock = app.requestSingleInstanceLock();
+if (!gotTheLock) {
+    app.quit();
+}
+app.on('second-instance', () => {
+    const wins = BrowserWindow.getAllWindows().filter(w => !w.isDestroyed());
+    for (const w of wins) { w.show(); w.focus(); }
+});
+
 app.whenReady().then(() => {
+    // ── Integrity & origin check ──
+    const integrity = verifyAppIntegrity();
+    if (!integrity.pass) {
+        console.error('[SECURITY] Integridad comprometida:', integrity.errors.join('; '));
+    }
+    const origin = verifyAppOrigin();
+    if (!origin.pass) {
+        console.error('[SECURITY] Origen no reconocido:', process.execPath);
+    }
+
+    // ── Content Security Policy ──
+    const { session } = require('electron');
+    session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+        if (details.url.startsWith('file://') || details.url.startsWith('chrome-extension://')) {
+            callback({
+                responseHeaders: {
+                    ...details.responseHeaders,
+                    'Content-Security-Policy': [
+                        "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https: wss:; font-src 'self' data:"
+                    ]
+                }
+            });
+        } else {
+            callback({ responseHeaders: details.responseHeaders });
+        }
+    });
+
     mainWindow = createWindow();
     setupTray(mainWindow);
     startSocialManager(NEON_DB_URL);
@@ -963,14 +994,19 @@ ipcMain.on('get-app-version', (e) => { e.returnValue = app.getVersion(); });
 // IPC — CONFIG GENERAL
 // ─────────────────────────────────────────────
 ipcMain.on('get-config', (e) => { e.returnValue = loadConfig(); });
-ipcMain.on('save-config', (_, cfg) => saveConfig(cfg));
+ipcMain.on('save-config', (_, cfg) => {
+    if (!cfg || typeof cfg !== 'object') return;
+    saveConfig(cfg);
+});
 ipcMain.on('set-config-key', (e, { key, value }) => {
+    key = sanitizeString(key, 50);
     const cfg = loadConfig();
     cfg[key] = value;
     saveConfig(cfg);
     e.returnValue = true;
 });
 ipcMain.on('save-cosmetics', (_, cosmetics) => {
+    if (!cosmetics || typeof cosmetics !== 'object') return;
     const cfg = loadConfig();
     cfg.cosmetics = cosmetics;
     saveConfig(cfg);
@@ -985,6 +1021,7 @@ ipcMain.on('get-accounts', (e) => {
 });
 
 ipcMain.on('add-account', (e, { username }) => {
+    username = sanitizeString(username, 50);
     const cfg = loadConfig();
     const id = generateId();
     cfg.accounts.push({ id, username: username.trim() || 'Jugador', skinPath: '' });
@@ -994,6 +1031,7 @@ ipcMain.on('add-account', (e, { username }) => {
 });
 
 ipcMain.on('remove-account', (e, { id }) => {
+    id = sanitizeId(id);
     const cfg = loadConfig();
     cfg.accounts = cfg.accounts.filter(a => a.id !== id);
     if (cfg.activeAccountId === id) cfg.activeAccountId = cfg.accounts[0]?.id || '';
@@ -1002,6 +1040,7 @@ ipcMain.on('remove-account', (e, { id }) => {
 });
 
 ipcMain.on('set-active-account', (e, { id }) => {
+    id = sanitizeId(id);
     const cfg = loadConfig();
     cfg.activeAccountId = id;
     saveConfig(cfg);
@@ -1009,6 +1048,7 @@ ipcMain.on('set-active-account', (e, { id }) => {
 });
 
 ipcMain.on('update-account-skin', (e, { id, skinPath }) => {
+    id = sanitizeId(id); skinPath = sanitizePath(skinPath);
     const cfg = loadConfig();
     const acc = cfg.accounts.find(a => a.id === id);
     if (acc) acc.skinPath = skinPath;
@@ -1025,6 +1065,7 @@ ipcMain.on('get-skin-library', (e) => {
 });
 
 ipcMain.on('add-skin-to-library', (e, { name, source, skinPath }) => {
+    name = sanitizeString(name, 100); source = sanitizeString(source, 50); skinPath = sanitizePath(skinPath);
     const cfg = loadConfig();
     const id = generateId();
     if (!cfg.skinLibrary) cfg.skinLibrary = [];
@@ -1034,6 +1075,7 @@ ipcMain.on('add-skin-to-library', (e, { name, source, skinPath }) => {
 });
 
 ipcMain.on('remove-skin-from-library', (e, { id }) => {
+    id = sanitizeId(id);
     const cfg = loadConfig();
     if (cfg.skinLibrary) cfg.skinLibrary = cfg.skinLibrary.filter(s => s.id !== id);
     saveConfig(cfg);
@@ -1041,6 +1083,7 @@ ipcMain.on('remove-skin-from-library', (e, { id }) => {
 });
 
 ipcMain.on('apply-skin-from-library', (e, { skinId, accountId }) => {
+    skinId = sanitizeId(skinId); accountId = sanitizeId(accountId);
     const cfg = loadConfig();
     const skin = cfg.skinLibrary?.find(s => s.id === skinId);
     if (!skin || !skin.path) { e.returnValue = false; return; }
@@ -1053,6 +1096,7 @@ ipcMain.on('apply-skin-from-library', (e, { skinId, accountId }) => {
 
 ipcMain.handle('save-skin-file', async (_, { data }) => {
     try {
+        if (typeof data !== 'string') return false;
         const skinsDir = path.join(userDataPath, 'skins');
         fs.mkdirSync(skinsDir, { recursive: true });
         const destPath = path.join(skinsDir, `editor_${Date.now()}.png`);
@@ -1072,6 +1116,8 @@ ipcMain.handle('save-skin-file', async (_, { data }) => {
 
 ipcMain.handle('download-nova-skin', async (_, { name, url }) => {
     try {
+        name = sanitizeString(name, 100);
+        if (typeof url !== 'string' || !url.startsWith('http')) return { success: false, error: 'URL inválida' };
         const skinsDir = path.join(userDataPath, 'skins');
         fs.mkdirSync(skinsDir, { recursive: true });
         const safeName = name.replace(/[^a-zA-Z0-9_-]/g, '_') || 'skin';
@@ -1107,6 +1153,7 @@ ipcMain.on('social-is-connected', (e) => {
 
 // ── Auth ──
 ipcMain.handle('social-register', async (_, { username, password }) => {
+    username = sanitizeString(username, 50); password = sanitizeString(password, 128);
     if (!socialManager) return { success: false, error: 'DB no conectada' };
     const result = await socialManager.signup(username, password);
     if (result.success && result.session) {
@@ -1116,6 +1163,7 @@ ipcMain.handle('social-register', async (_, { username, password }) => {
 });
 
 ipcMain.handle('social-signin', async (_, { username, password }) => {
+    username = sanitizeString(username, 50); password = sanitizeString(password, 128);
     if (!socialManager) return { success: false, error: 'DB no conectada' };
     const result = await socialManager.signin(username, password);
     if (result.success && result.session) {
@@ -1206,6 +1254,7 @@ ipcMain.handle('social-get-account', async () => {
 });
 
 ipcMain.handle('social-get-user-by-username', async (_, { username }) => {
+    username = sanitizeString(username, 50);
     try {
         if (!socialManager) return null;
         return await socialManager.getUserByUsername(username);
@@ -1217,6 +1266,7 @@ ipcMain.handle('social-get-user-by-username', async (_, { username }) => {
 
 // ── Friends ──
 ipcMain.handle('social-send-friend-request', async (_, { toUser }) => {
+    toUser = sanitizeString(toUser, 50);
     try {
         if (!socialManager) return { success: false, error: 'Social no iniciado' };
         return await socialManager.sendFriendRequest(toUser);
@@ -1227,6 +1277,7 @@ ipcMain.handle('social-send-friend-request', async (_, { toUser }) => {
 });
 
 ipcMain.handle('social-accept-friend', async (_, { fromUser }) => {
+    fromUser = sanitizeString(fromUser, 50);
     try {
         if (!socialManager) return;
         const pending = await socialManager.getPendingRequests();
@@ -1238,6 +1289,7 @@ ipcMain.handle('social-accept-friend', async (_, { fromUser }) => {
 });
 
 ipcMain.handle('social-reject-friend', async (_, { fromUser }) => {
+    fromUser = sanitizeString(fromUser, 50);
     try {
         if (!socialManager) return;
         const pending = await socialManager.getPendingRequests();
@@ -1249,6 +1301,7 @@ ipcMain.handle('social-reject-friend', async (_, { fromUser }) => {
 });
 
 ipcMain.handle('social-remove-friend', async (_, { friendUser }) => {
+    friendUser = sanitizeString(friendUser, 50);
     try {
         if (!socialManager) return;
         const friends = await socialManager.listFriends();
@@ -1273,6 +1326,7 @@ ipcMain.handle('social-list-friends', async () => {
 });
 
 ipcMain.handle('social-search-users', async (_, { query }) => {
+    query = sanitizeString(query, 100);
     if (!socialManager || !query || query.length < 1) return [];
     try {
         return await socialDb.searchUsers(query, 10);
@@ -1291,6 +1345,7 @@ ipcMain.handle('social-get-pending-requests', async () => {
 
 // ── Messages ──
 ipcMain.handle('social-get-messages', async (_, { withUser }) => {
+    withUser = sanitizeString(withUser, 50);
     if (!socialManager) return [];
     try {
         const target = await socialManager.getUserByUsername(withUser);
@@ -1312,6 +1367,7 @@ ipcMain.handle('social-get-messages', async (_, { withUser }) => {
 });
 
 ipcMain.handle('social-send-message', async (_, { toUser, content }) => {
+    toUser = sanitizeString(toUser, 50); content = sanitizeString(content, 5000);
     if (!socialManager) return null;
     try {
         const target = await socialManager.getUserByUsername(toUser);
@@ -1327,12 +1383,14 @@ ipcMain.handle('social-send-message', async (_, { toUser, content }) => {
 
 // ── Notifications ──
 ipcMain.handle('show-notification', (_, { type, data }) => {
+    type = sanitizeString(type, 50);
     if (notificationManager) {
         notificationManager.show(type, data);
     }
 });
 
 ipcMain.handle('send-game-invite', async (event, { toUser }) => {
+    toUser = sanitizeString(toUser, 50);
     try {
         if (!event.sender || event.sender.isDestroyed()) return { success: false };
         if (!socialManager || !socialManager.isLoggedIn()) return { success: false };
@@ -1401,6 +1459,7 @@ ipcMain.on('focus-main-window', () => {
 });
 
 ipcMain.on('overlay-open-chat', (event, username) => {
+    username = sanitizeString(username, 50);
     if (event.sender && event.sender.isDestroyed()) return;
     if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.show();
@@ -1489,6 +1548,7 @@ ipcMain.handle('get-social-state', async () => {
 
 // ── Status / Misc ──
 ipcMain.handle('social-accept-game-invite', async (_, { inviteId }) => {
+    inviteId = sanitizeId(inviteId);
     if (!socialManager || !socialManager.isLoggedIn()) return { success: false };
     try {
         const result = await socialManager.acceptGameInvite(inviteId);
@@ -1517,6 +1577,7 @@ ipcMain.handle('social-accept-game-invite', async (_, { inviteId }) => {
 });
 
 ipcMain.handle('social-reject-game-invite', async (_, { inviteId }) => {
+    inviteId = sanitizeId(inviteId);
     if (!socialManager || !socialManager.isLoggedIn()) return { success: false };
     try {
         await socialManager.rejectGameInvite(inviteId);
@@ -1541,6 +1602,7 @@ ipcMain.handle('admin-get-initial-state', async () => {
 });
 
 ipcMain.handle('admin-send-command', async (_, { command }) => {
+    command = sanitizeString(command, 500);
     if (serverProcess) {
         serverProcess.proc.stdin.write(command + '\n');
         broadcastToAdmin('admin-log', { text: '> ' + command, ts: Date.now() });
@@ -1585,6 +1647,7 @@ ipcMain.handle('admin-close-server', async () => {
 });
 
 ipcMain.handle('social-get-friend-status', async (_, { friendUsername }) => {
+    friendUsername = sanitizeString(friendUsername, 50);
     try {
         if (!socialManager) return null;
         const target = await socialManager.getUserByUsername(friendUsername);
@@ -1607,6 +1670,7 @@ ipcMain.on('social-retry', () => {
 });
 
 ipcMain.on('set-minimize-to-tray', (e, { value }) => {
+    value = sanitizeBoolean(value);
     const cfg = loadConfig();
     cfg.minimizeToTray = value;
     saveConfig(cfg);
@@ -1614,6 +1678,7 @@ ipcMain.on('set-minimize-to-tray', (e, { value }) => {
 });
 
 ipcMain.on('set-suppress-updates', (e, { value }) => {
+    value = sanitizeBoolean(value);
     const cfg = loadConfig();
     cfg.suppressUpdateNotifications = value;
     saveConfig(cfg);
@@ -1629,16 +1694,17 @@ ipcMain.on('get-profiles', (e) => {
 });
 
 ipcMain.on('add-profile', (e, profileData) => {
+    if (!profileData || typeof profileData !== 'object') { e.returnValue = null; return; }
     const cfg = loadConfig();
     const id = generateId();
     const profile = {
         id,
-        name: profileData.name || 'Nueva Versión',
-        icon: profileData.icon || '⛏️',
-        versionId: profileData.versionId || '',
-        gameDirectory: profileData.gameDirectory || '',
-        ram: profileData.ram || '4',
-        jvmArgs: profileData.jvmArgs || '',
+        name: String(profileData.name || 'Nueva Versión').slice(0, 100),
+        icon: String(profileData.icon || '⛏️').slice(0, 10),
+        versionId: String(profileData.versionId || '').slice(0, 50),
+        gameDirectory: String(profileData.gameDirectory || '').slice(0, 500),
+        ram: String(profileData.ram || '4').slice(0, 10),
+        jvmArgs: String(profileData.jvmArgs || '').slice(0, 1000),
         mods: []
     };
     cfg.profiles.push(profile);
@@ -1648,14 +1714,16 @@ ipcMain.on('add-profile', (e, profileData) => {
 });
 
 ipcMain.on('update-profile', (e, updatedProfile) => {
+    if (!updatedProfile || typeof updatedProfile !== 'object') { e.returnValue = null; return; }
     const cfg = loadConfig();
-    const idx = cfg.profiles.findIndex(p => p.id === updatedProfile.id);
+    const idx = cfg.profiles.findIndex(p => p.id === sanitizeId(updatedProfile.id));
     if (idx !== -1) cfg.profiles[idx] = { ...cfg.profiles[idx], ...updatedProfile };
     saveConfig(cfg);
     e.returnValue = cfg.profiles;
 });
 
 ipcMain.on('remove-profile', (e, { id }) => {
+    id = sanitizeId(id);
     const cfg = loadConfig();
     cfg.profiles = cfg.profiles.filter(p => p.id !== id);
     if (cfg.activeProfileId === id) cfg.activeProfileId = cfg.profiles[0]?.id || '';
@@ -1664,6 +1732,7 @@ ipcMain.on('remove-profile', (e, { id }) => {
 });
 
 ipcMain.on('set-active-profile', (e, { id }) => {
+    id = sanitizeId(id);
     const cfg = loadConfig();
     cfg.activeProfileId = id;
     saveConfig(cfg);
@@ -1997,6 +2066,7 @@ let activeInstances = 0;
 ipcMain.on('get-active-instances', (e) => { e.returnValue = activeInstances; });
 
 ipcMain.on('launch-game', async (event, { profileId }) => {
+    profileId = sanitizeId(profileId);
     startSkinServer();
     try {
         const cfg = loadConfig();
@@ -2177,6 +2247,7 @@ ipcMain.handle('get-fabric-versions', async () => {
 // IPC — VERSIONES FORGE
 // ─────────────────────────────────────────────
 ipcMain.handle('get-forge-versions', async (_, { mcVersion }) => {
+    mcVersion = sanitizeString(mcVersion, 50);
     try {
         const data = await fetchJSON(`https://mc-versions-api.net/api/forge?version=${mcVersion}`);
         // La API devuelve { version: [...] } o array directamente
@@ -2195,6 +2266,7 @@ ipcMain.handle('get-forge-versions', async (_, { mcVersion }) => {
 // IPC — INSTALAR VANILLA + FABRIC (existente)
 // ─────────────────────────────────────────────
 ipcMain.handle('install-version', async (event, { vanillaId, fabricVersion }) => {
+    vanillaId = sanitizeString(vanillaId, 50); fabricVersion = sanitizeString(fabricVersion, 50);
     const rootPath = gameRoot;
     const send = (msg, percent) => event.sender.send('install-progress', { msg, percent });
 
@@ -2252,6 +2324,7 @@ ipcMain.handle('install-version', async (event, { vanillaId, fabricVersion }) =>
 // IPC — INSTALAR FORGE
 // ─────────────────────────────────────────────
 ipcMain.handle('install-forge', async (event, { mcVersion, forgeVersion }) => {
+    mcVersion = sanitizeString(mcVersion, 50); forgeVersion = sanitizeString(forgeVersion, 50);
     const send = (msg, percent) => event.sender.send('install-progress', { msg, percent });
 
     try {
@@ -2332,6 +2405,7 @@ ipcMain.handle('install-forge', async (event, { mcVersion, forgeVersion }) => {
 // IPC — MODS MODRINTH
 // ─────────────────────────────────────────────
 ipcMain.handle('search-mods', async (_, { query, loader, gameVersion, offset = 0 }) => {
+    query = sanitizeString(query, 100); loader = sanitizeString(loader, 50); gameVersion = sanitizeString(gameVersion, 20); offset = typeof offset === 'number' ? offset : 0;
     try {
         const facets = [['project_type:mod']];
         if (loader) facets.push([`categories:${loader}`]);
@@ -2347,6 +2421,7 @@ ipcMain.handle('search-mods', async (_, { query, loader, gameVersion, offset = 0
 });
 
 ipcMain.handle('get-mod-versions', async (_, { projectId, loader, gameVersion }) => {
+    projectId = sanitizeString(projectId, 100); loader = sanitizeString(loader, 50); gameVersion = sanitizeString(gameVersion, 20);
     try {
         let url = `https://api.modrinth.com/v2/project/${projectId}/version`;
         const params = [];
@@ -2361,6 +2436,8 @@ ipcMain.handle('get-mod-versions', async (_, { projectId, loader, gameVersion })
 });
 
 ipcMain.handle('install-mod', async (event, { profileId, modFile, modId, modName }) => {
+    profileId = sanitizeId(profileId); modId = sanitizeString(modId, 100); modName = sanitizeString(modName, 200);
+    if (!modFile || typeof modFile !== 'object') return { success: false, error: 'Datos de mod inválidos' };
     const send = (msg, percent) => event.sender.send('mod-install-progress', { msg, percent });
     try {
         const cfg = loadConfig();
@@ -2394,6 +2471,7 @@ ipcMain.handle('install-mod', async (event, { profileId, modFile, modId, modName
 });
 
 ipcMain.on('remove-mod', (event, { profileId, modId }) => {
+    profileId = sanitizeId(profileId); modId = sanitizeString(modId, 100);
     const cfg = loadConfig();
     const profile = cfg.profiles.find(p => p.id === profileId);
     if (!profile) { event.returnValue = false; return; }
@@ -2408,6 +2486,7 @@ ipcMain.on('remove-mod', (event, { profileId, modId }) => {
 });
 
 ipcMain.on('get-profile-mods', (event, { profileId }) => {
+    profileId = sanitizeId(profileId);
     const cfg = loadConfig();
     const profile = cfg.profiles.find(p => p.id === profileId);
     event.returnValue = profile?.mods || [];
@@ -2417,6 +2496,7 @@ ipcMain.on('get-profile-mods', (event, { profileId }) => {
 // IPC — DEPENDENCIAS DE UN MOD
 // ─────────────────────────────────────────────
 ipcMain.handle('get-mod-dependencies', async (_, { versionId }) => {
+    versionId = sanitizeString(versionId, 100);
     try {
         const ver = await fetchJSON(`https://api.modrinth.com/v2/version/${versionId}`);
         const required = (ver.dependencies || []).filter(d => d.dependency_type === 'required');
@@ -2437,6 +2517,7 @@ ipcMain.handle('get-mod-dependencies', async (_, { versionId }) => {
 // IPC — BUSCAR MODPACKS (CURSEFORGE)
 // ─────────────────────────────────────────────
 ipcMain.handle('search-modpacks', async (_, { query, offset = 0 }) => {
+    query = sanitizeString(query, 100); offset = typeof offset === 'number' ? offset : 0;
     try {
         const params = {
             gameId: CURSEFORGE_GAME_ID,
@@ -2468,6 +2549,8 @@ ipcMain.handle('get-modpack-versions', async (_, { projectId }) => {
 // IPC — INSTALAR MODPACK (.mrpack o CurseForge ZIP)
 // ─────────────────────────────────────────────
 ipcMain.handle('install-modpack', async (event, { profileId, versionData, modpackName }) => {
+    profileId = sanitizeId(profileId); modpackName = sanitizeString(modpackName, 200);
+    if (!versionData || typeof versionData !== 'object') return { success: false, error: 'Datos de versión inválidos' };
     const send = (msg, percent) => event.sender.send('modpack-progress', { msg, percent });
     const cfg = loadConfig();
     const profile = cfg.profiles.find(p => p.id === profileId);
@@ -2663,7 +2746,7 @@ async function ensureVanillaInstalled(mcVersion, onProgress) {
 // ─────────────────────────────────────────────
 const CURSEFORGE_API_URL = 'https://api.curseforge.com/v1';
 const CURSEFORGE_GAME_ID = 432; // Minecraft
-const CURSEFORGE_API_KEY = process.env.CURSEFORGE_API_KEY || '$2a$10$fVunHNo8wbeBbe.sU9/uU.U/9U9U9U9U9U9U9U9U9U9U9U9U9U9U9'; // Proxy placeholder
+// CURSEFORGE_API_KEY declared at top of file (env section)
 
 async function cfRequest(endpoint, params = {}) {
     let url = `${CURSEFORGE_API_URL}${endpoint}`;
@@ -2681,6 +2764,7 @@ ipcMain.handle('get-curseforge-categories', async () => {
 });
 
 ipcMain.handle('search-curseforge', async (_, { query, classId, offset, sortField, sortOrder, gameVersion, modLoaderType, categoryId }) => {
+    query = sanitizeString(query, 200); gameVersion = sanitizeString(gameVersion, 20); modLoaderType = typeof modLoaderType === 'number' ? modLoaderType : undefined; categoryId = sanitizeString(categoryId, 50);
     try {
         const params = {
             gameId: CURSEFORGE_GAME_ID,
@@ -2703,6 +2787,7 @@ ipcMain.handle('search-curseforge', async (_, { query, classId, offset, sortFiel
 });
 
 ipcMain.handle('get-curseforge-files', async (_, { modId, gameVersion, modLoaderType }) => {
+    modId = typeof modId === 'number' ? modId : parseInt(String(modId), 10) || 0; gameVersion = sanitizeString(gameVersion, 20); modLoaderType = typeof modLoaderType === 'number' ? modLoaderType : undefined;
     try {
         const params = {};
         if (gameVersion) params.gameVersion = gameVersion;
@@ -2714,6 +2799,8 @@ ipcMain.handle('get-curseforge-files', async (_, { modId, gameVersion, modLoader
 });
 
 ipcMain.handle('install-curseforge-mod', async (event, { profileId, fileData, modName }) => {
+    profileId = sanitizeId(profileId); modName = sanitizeString(modName, 200);
+    if (!fileData || typeof fileData !== 'object') return { success: false, error: 'Datos de mod inválidos' };
     const send = (msg, percent) => event.sender.send('mod-install-progress', { msg, percent });
     try {
         const cfg = loadConfig();
@@ -2811,6 +2898,7 @@ ipcMain.on('get-hud-config', (e) => {
 });
 
 ipcMain.on('save-hud-config', (_, data) => {
+    if (!data || typeof data !== 'object') return;
     const gameDir = getActiveGameDir();
     if (!gameDir) return;
     const configDir = path.join(gameDir, 'config');
@@ -2830,6 +2918,7 @@ ipcMain.on('save-hud-config', (_, data) => {
 });
 
 ipcMain.on('write-options', (_, { key, value }) => {
+    key = sanitizeString(key, 100);
     const gameDir = getActiveGameDir();
     if (!gameDir) return;
     const optPath = path.join(gameDir, 'options.txt');
@@ -2878,6 +2967,7 @@ async function findFreePort(start = 25565) {
 const _p2pEngineCache = new Map(); // sessionId → P2PEngine for reuse
 
 ipcMain.handle('p2p-start-hosting', async (_, { sessionId, guestUserId, mcPort, userId }) => {
+    sessionId = sanitizeString(sessionId, 100); guestUserId = typeof guestUserId === 'number' ? guestUserId : 0; mcPort = typeof mcPort === 'number' ? mcPort : 25565; userId = typeof userId === 'number' ? userId : 0;
     try {
         if (!activeProcesses.has(userId)) {
             return { success: false, error: 'Inicia el servidor primero' };
@@ -2940,6 +3030,7 @@ ipcMain.handle('p2p-start-hosting', async (_, { sessionId, guestUserId, mcPort, 
 });
 
 ipcMain.handle('p2p-join-session', async (_, { sessionId, userId, jarPath, username }) => {
+    sessionId = sanitizeString(sessionId, 100); userId = typeof userId === 'number' ? userId : 0; jarPath = sanitizePath(jarPath); username = sanitizeString(username, 50);
     try {
         const pool = socialDb?.pool;
         if (!pool) return { success: false, error: 'DB no conectada' };
@@ -3006,6 +3097,7 @@ ipcMain.handle('p2p-join-session', async (_, { sessionId, userId, jarPath, usern
 });
 
 ipcMain.handle('p2p-stop-hosting', async (_, { sessionId }) => {
+    sessionId = sanitizeString(sessionId, 100);
     try {
         const entry = activeBridges.get(sessionId);
         if (entry) {

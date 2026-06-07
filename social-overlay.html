@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Social Overlay</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    background: #0f0f0f;
+    color: #e0e0e0;
+    font-size: 13px;
+    overflow: hidden;
+    user-select: none;
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+}
+#overlay-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 12px;
+    background: #1a1a1a;
+    border-bottom: 1px solid #2a2a2a;
+    -webkit-app-region: drag;
+    flex-shrink: 0;
+}
+#overlay-header h3 {
+    font-size: 14px;
+    font-weight: 600;
+    color: #ccc;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+#overlay-header .header-actions {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    -webkit-app-region: no-drag;
+}
+#overlay-header .header-actions button {
+    background: none;
+    border: none;
+    color: #888;
+    font-size: 16px;
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 4px;
+}
+#overlay-header .header-actions button:hover { background: #333; color: #fff; }
+#bridge-status {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    font-size: 10px;
+    color: #666;
+    border-bottom: 1px solid #1a1a1a;
+    flex-shrink: 0;
+}
+#bridge-status .dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: #6b7280;
+    flex-shrink: 0;
+}
+#bridge-status .dot.online { background: #22c55e; }
+#tabs {
+    display: flex;
+    border-bottom: 1px solid #1a1a1a;
+    flex-shrink: 0;
+}
+#tabs button {
+    flex: 1;
+    padding: 8px 6px;
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: #888;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    transition: all 0.15s;
+}
+#tabs button.active { color: #c8a8ff; border-bottom-color: #8b5cf6; }
+#tabs button:hover:not(.active) { color: #ccc; }
+#tabs .badge {
+    margin-left: 4px;
+    background: #ef4444;
+    color: #fff;
+    font-size: 9px;
+    font-weight: 700;
+    padding: 1px 5px;
+    border-radius: 8px;
+    vertical-align: middle;
+}
+.tab-content { display: none; flex-direction: column; flex: 1; overflow: hidden; }
+.tab-content.active { display: flex; position: relative; }
+#friend-list, #requests-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 6px 0;
+}
+#friend-list::-webkit-scrollbar, #requests-list::-webkit-scrollbar { width: 3px; }
+#friend-list::-webkit-scrollbar-track, #requests-list::-webkit-scrollbar-track { background: transparent; }
+#friend-list::-webkit-scrollbar-thumb, #requests-list::-webkit-scrollbar-thumb { background: rgba(100, 60, 200, 0.3); border-radius: 3px; }
+.friend-item {
+    display: flex;
+    align-items: center;
+    padding: 8px 12px;
+    gap: 10px;
+    cursor: default;
+    transition: background 0.15s;
+    position: relative;
+}
+.friend-item:hover { background: #1a1a1a; }
+.friend-item .avatar {
+    width: 28px; height: 28px;
+    border-radius: 50%;
+    background: #2a2a2a;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    position: relative;
+}
+.friend-item .avatar svg { width: 16px; height: 16px; fill: #666; }
+.status-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    display: inline-block;
+    margin-left: 4px;
+    flex-shrink: 0;
+}
+.status-dot.online { background: #43b581; }
+.status-dot.away { background: #faa61a; }
+.status-dot.dnd { background: #f04747; }
+.status-dot.offline { background: #555; }
+.status-dot.playing_singleplayer,
+.status-dot.playing_multiplayer { background: #7289da; }
+.friend-item .info { flex: 1; min-width: 0; }
+.friend-item .name {
+    font-weight: 500;
+    font-size: 13px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.friend-item .status {
+    font-size: 11px;
+    color: #888;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.friend-item .actions { display: flex; gap: 4px; flex-shrink: 0; }
+.friend-item .actions button {
+    background: none;
+    border: 1px solid #333;
+    color: #aaa;
+    font-size: 16px;
+    cursor: pointer;
+    padding: 2px 5px;
+    border-radius: 4px;
+    line-height: 1;
+    transition: all 0.15s;
+}
+.friend-item .actions button:hover { background: #333; color: #fff; border-color: #555; }
+.friend-item .actions .invite-btn { font-size: 14px; padding: 2px 7px; }
+.friend-item .actions .remove-btn { font-size: 14px; color: #f87171; }
+.friend-item .actions .remove-btn:hover { background: rgba(248,113,113,0.15); color: #ef4444; border-color: rgba(248,113,113,0.3); }
+.friend-item .actions .accept-btn {
+    font-size: 14px;
+    color: #22c55e;
+    border-color: rgba(34,197,94,0.3);
+}
+.friend-item .actions .accept-btn:hover { background: rgba(34,197,94,0.15); color: #4ade80; }
+.empty-state {
+    padding: 30px 20px;
+    text-align: center;
+    color: #555;
+    font-size: 13px;
+}
+#add-friend {
+    display: flex;
+    gap: 6px;
+    padding: 8px 12px;
+    border-top: 1px solid #1a1a1a;
+    flex-shrink: 0;
+    position: relative;
+}
+#add-friend input {
+    flex: 1;
+    padding: 6px 10px;
+    font-size: 11px;
+    background: #1a1a1a;
+    border: 1px solid #333;
+    border-radius: 6px;
+    color: #e0e0e0;
+    outline: none;
+}
+#add-friend input:focus { border-color: #555; }
+#add-friend button {
+    padding: 6px 10px;
+    font-size: 12px;
+    background: #1a1a1a;
+    border: 1px solid #333;
+    border-radius: 6px;
+    color: #aaa;
+    cursor: pointer;
+}
+#add-friend button:hover { background: #333; color: #fff; }
+.search-results-dropdown {
+    display: none;
+    position: absolute;
+    bottom: 100%;
+    left: 12px;
+    right: 12px;
+    z-index: 100;
+    background: #1a1a1a;
+    border: 1px solid #333;
+    border-radius: 6px;
+    max-height: 140px;
+    overflow-y: auto;
+    margin-bottom: 4px;
+}
+.search-results-dropdown .suggestion {
+    padding: 6px 10px;
+    font-size: 12px;
+    cursor: pointer;
+    color: #ccc;
+}
+.search-results-dropdown .suggestion:hover { background: #2a2a2a; color: #fff; }
+
+/* Chat panel overlay */
+#chat-panel {
+    display: none;
+    position: absolute;
+    inset: 0;
+    background: #0f0f0f;
+    flex-direction: column;
+    z-index: 10;
+    animation: slideInChat 0.15s ease;
+}
+#chat-panel.open { display: flex; }
+@keyframes slideInChat {
+    from { transform: translateX(12px); opacity: 0; }
+    to { transform: translateX(0); opacity: 1; }
+}
+#chat-panel .chat-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+    border-bottom: 1px solid #2a2a2a;
+    background: #1a1a1a;
+    flex-shrink: 0;
+}
+#chat-panel .chat-back {
+    background: none;
+    border: none;
+    color: #888;
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    font-size: 18px;
+}
+#chat-panel .chat-back:hover { color: #fff; background: #333; }
+#chat-panel .chat-name { font-weight: 600; font-size: 13px; flex: 1; }
+#chat-panel .chat-state { font-size: 10px; color: #888; margin-top: 1px; }
+#chat-panel .chat-status-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: #444;
+    flex-shrink: 0;
+}
+#chat-panel .chat-status-dot.online { background: #22c55e; }
+#chat-panel .chat-messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+#chat-panel .chat-messages::-webkit-scrollbar { width: 3px; }
+#chat-panel .chat-messages::-webkit-scrollbar-track { background: transparent; }
+#chat-panel .chat-messages::-webkit-scrollbar-thumb { background: rgba(100, 60, 200, 0.3); border-radius: 3px; }
+#chat-panel .chat-input-row {
+    display: flex;
+    gap: 6px;
+    padding: 8px 12px;
+    border-top: 1px solid #2a2a2a;
+    flex-shrink: 0;
+}
+#chat-panel .chat-input-row input {
+    flex: 1;
+    padding: 7px 10px;
+    font-size: 12px;
+    background: #1a1a1a;
+    border: 1px solid #333;
+    border-radius: 6px;
+    color: #e0e0e0;
+    outline: none;
+}
+#chat-panel .chat-input-row input:focus { border-color: #555; }
+#chat-panel .chat-input-row button {
+    padding: 6px 12px;
+    background: #1a1a1a;
+    border: 1px solid #333;
+    border-radius: 6px;
+    color: #888;
+    cursor: pointer;
+    font-size: 14px;
+}
+#chat-panel .chat-input-row button:hover { background: #333; color: #fff; }
+
+/* Toast */
+#toast {
+    position: fixed;
+    bottom: 12px;
+    left: 12px;
+    right: 12px;
+    background: #1a1a1a;
+    border: 1px solid #333;
+    border-radius: 6px;
+    padding: 10px 12px;
+    font-size: 12px;
+    color: #e0e0e0;
+    z-index: 200;
+    display: none;
+    animation: toastIn 0.2s ease;
+    text-align: center;
+}
+#toast.error { border-color: #ef4444; color: #fca5a5; }
+#toast.success { border-color: #22c55e; color: #86efac; }
+@keyframes toastIn {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+</style>
+</head>
+<body>
+<div id="overlay-header">
+    <h3><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg> SOCIAL</h3>
+    <div class="header-actions">
+        <button onclick="openFullSocial()" title="Abrir social completo">⚙</button>
+        <button class="close-btn" onclick="closeOverlay()">&times;</button>
+    </div>
+</div>
+<div id="bridge-status">
+    <span class="dot" id="bridge-dot"></span>
+    <span id="bridge-text">Neon: Desconectado</span>
+</div>
+<div id="tabs">
+    <button class="active" data-tab="tab-friends" onclick="switchTab('tab-friends')">Amigos</button>
+    <button data-tab="tab-requests" onclick="switchTab('tab-requests')">Solicitudes<span class="badge" id="requests-badge" style="display:none">0</span></button>
+    <button data-tab="tab-invites" onclick="switchTab('tab-invites')">Invitaciones<span class="badge" id="invites-badge" style="display:none">0</span></button>
+</div>
+<div id="tab-friends" class="tab-content active">
+    <div id="friend-list"><div class="empty-state">Cargando...</div></div>
+    <div id="add-friend" style="position:relative;">
+        <input type="text" id="friend-search-input" placeholder="Agregar amigo..." maxlength="16">
+        <button onclick="sendFriendRequest()">+</button>
+        <div class="search-results-dropdown" id="search-results"></div>
+    </div>
+    <div id="chat-panel">
+        <div class="chat-header">
+            <button class="chat-back" onclick="closeChat()">←</button>
+            <div style="flex:1;min-width:0;">
+                <div class="chat-name" id="chat-name">PlayerName</div>
+                <div class="chat-state" id="chat-state"></div>
+            </div>
+            <span class="chat-status-dot" id="chat-status-dot"></span>
+        </div>
+        <div class="chat-messages" id="chat-messages"><div class="empty-state">Cargando...</div></div>
+        <div class="chat-input-row">
+            <input type="text" id="chat-input" placeholder="Mensaje..." maxlength="200">
+            <button onclick="sendChatMessage()">→</button>
+        </div>
+    </div>
+</div>
+<div id="tab-requests" class="tab-content">
+    <div id="requests-list"><div class="empty-state">Sin solicitudes.</div></div>
+</div>
+<div id="tab-invites" class="tab-content">
+    <div id="invites-list"><div class="empty-state">Sin invitaciones.</div></div>
+</div>
+<div id="toast"></div>
+<script>
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+        if (activeChatUser) { closeChat(); e.stopPropagation(); return; }
+        closeOverlay();
+    }
+});
+</script>
+<script src="social-overlay.js"></script>
+</body>
+</html>

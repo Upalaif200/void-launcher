@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Administración del Servidor</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    background: #0d1117;
+    color: #e6edf3;
+    font-size: 13px;
+    overflow: hidden;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+.header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 16px;
+    background: #161b22;
+    border-bottom: 1px solid #30363d;
+    flex-shrink: 0;
+}
+.header h1 { font-size: 15px; font-weight: 600; display: flex; align-items: center; gap: 10px; }
+.live-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    background: #1a3a2a;
+    color: #3fb950;
+    font-size: 10px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 12px;
+    border: 1px solid #2ea043;
+}
+.live-badge .pulse {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: #3fb950;
+    animation: pulse 1.5s infinite;
+}
+@keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.3; } 100% { opacity: 1; } }
+.uptime-counter { font-size: 12px; color: #8b949e; }
+.tabs {
+    display: flex;
+    border-bottom: 1px solid #30363d;
+    flex-shrink: 0;
+    background: #161b22;
+}
+.tabs button {
+    padding: 8px 16px;
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: #8b949e;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+.tabs button.active { color: #e6edf3; border-bottom-color: #58a6ff; }
+.tabs button:hover:not(.active) { color: #c9d1d9; }
+.tab-content { display: none; flex: 1; overflow: hidden; }
+.tab-content.active { display: flex; flex-direction: column; }
+
+/* Console tab */
+#console-log {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px 12px;
+    font-family: 'Cascadia Code', 'Consolas', monospace;
+    font-size: 12px;
+    line-height: 1.5;
+}
+#console-log::-webkit-scrollbar { width: 6px; }
+#console-log::-webkit-scrollbar-track { background: transparent; }
+#console-log::-webkit-scrollbar-thumb { background: #30363d; border-radius: 3px; }
+.console-line { padding: 1px 0; white-space: pre-wrap; word-break: break-all; }
+.console-line .ts { color: #484f58; margin-right: 8px; font-size: 10px; }
+.console-line .text-info { color: #58d68d; }
+.console-line .text-warn { color: #e9c46a; }
+.console-line .text-error { color: #f85149; }
+.console-line .text-command { color: #58a6ff; font-style: italic; }
+.console-footer {
+    display: flex;
+    gap: 8px;
+    padding: 8px 12px;
+    border-top: 1px solid #30363d;
+    background: #161b22;
+    flex-shrink: 0;
+}
+.console-footer input {
+    flex: 1;
+    padding: 6px 10px;
+    font-family: 'Cascadia Code', 'Consolas', monospace;
+    font-size: 12px;
+    background: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    color: #e6edf3;
+    outline: none;
+}
+.console-footer input:focus { border-color: #58a6ff; }
+.console-footer button {
+    padding: 6px 12px;
+    background: #21262d;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    color: #c9d1d9;
+    cursor: pointer;
+    font-size: 12px;
+}
+.console-footer button:hover { background: #30363d; }
+
+/* Chat tab */
+#chat-log {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px;
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    font-size: 13px;
+}
+#chat-log::-webkit-scrollbar { width: 6px; }
+#chat-log::-webkit-scrollbar-track { background: transparent; }
+#chat-log::-webkit-scrollbar-thumb { background: #30363d; border-radius: 3px; }
+.chat-msg { padding: 6px 10px; border-radius: 6px; margin-bottom: 4px; }
+.chat-msg:nth-child(odd) { background: #161b22; }
+.chat-msg:nth-child(even) { background: #0d1117; }
+.chat-msg .chat-user { color: #58a6ff; font-weight: 500; }
+.chat-msg .chat-text { color: #e6edf3; }
+.chat-msg .chat-ts { color: #484f58; font-size: 10px; margin-left: 6px; }
+
+/* Players tab */
+#players-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px;
+}
+#players-content::-webkit-scrollbar { width: 6px; }
+#players-content::-webkit-scrollbar-track { background: transparent; }
+#players-content::-webkit-scrollbar-thumb { background: #30363d; border-radius: 3px; }
+table { width: 100%; border-collapse: collapse; }
+th { text-align: left; padding: 8px 10px; font-size: 11px; color: #8b949e; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid #30363d; }
+td { padding: 8px 10px; border-bottom: 1px solid #21262d; font-size: 13px; }
+.status-badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: 600; }
+.status-badge.online { background: #1a3a2a; color: #3fb950; border: 1px solid #2ea043; }
+.status-badge.offline { background: #21262d; color: #8b949e; border: 1px solid #30363d; }
+.empty-state { padding: 40px 20px; text-align: center; color: #484f58; font-size: 14px; }
+
+/* Stats tab */
+#stats-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+.stats-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+}
+.stat-card {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    padding: 20px;
+    text-align: center;
+}
+.stat-card .stat-value { font-size: 28px; font-weight: 700; color: #e6edf3; }
+.stat-card .stat-label { font-size: 11px; color: #8b949e; margin-top: 4px; text-transform: uppercase; letter-spacing: 0.05em; }
+.stop-btn {
+    align-self: center;
+    padding: 10px 32px;
+    background: #da3633;
+    border: 1px solid #f85149;
+    border-radius: 6px;
+    color: #fff;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s;
+    margin-top: 12px;
+}
+.stop-btn:hover { background: #b62324; }
+</style>
+</head>
+<body>
+<div class="header">
+    <h1>Servidor Minecraft <span class="live-badge"><span class="pulse"></span>EN VIVO</span></h1>
+    <span class="uptime-counter" id="uptime-display">00:00:00</span>
+</div>
+<div class="tabs">
+    <button class="active" data-tab="tab-console" onclick="switchTab('tab-console')">Consola</button>
+    <button data-tab="tab-chat" onclick="switchTab('tab-chat')">Chat</button>
+    <button data-tab="tab-players" onclick="switchTab('tab-players')">Jugadores</button>
+    <button data-tab="tab-stats" onclick="switchTab('tab-stats')">Stats</button>
+</div>
+<div id="tab-console" class="tab-content active">
+    <div id="console-log"></div>
+    <div class="console-footer">
+        <input type="text" id="cmd-input" placeholder="Escribe un comando..." spellcheck="false">
+        <button onclick="sendCommand()">Enviar</button>
+        <button onclick="clearConsole()">Limpiar</button>
+    </div>
+</div>
+<div id="tab-chat" class="tab-content">
+    <div id="chat-log"></div>
+</div>
+<div id="tab-players" class="tab-content">
+    <div id="players-content"><div class="empty-state">Ningún jugador conectado</div></div>
+</div>
+<div id="tab-stats" class="tab-content">
+    <div id="stats-content"></div>
+</div>
+<script>
+const api = window.electronAPI;
+let autoScroll = true;
+let playerData = {};
+let startTime = null;
+
+function switchTab(tabId) {
+    document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('active', b.dataset.tab === tabId));
+    document.querySelectorAll('.tab-content').forEach(c => c.classList.toggle('active', c.id === tabId));
+    if (tabId === 'tab-players') renderPlayers();
+    if (tabId === 'tab-stats') renderStats();
+}
+
+function formatTime(ms) {
+    const totalSec = Math.floor(ms / 1000);
+    const h = String(Math.floor(totalSec / 3600)).padStart(2, '0');
+    const m = String(Math.floor((totalSec % 3600) / 60)).padStart(2, '0');
+    const s = String(totalSec % 60).padStart(2, '0');
+    return h + ':' + m + ':' + s;
+}
+
+function formatDuration(ms) {
+    const totalSec = Math.floor(ms / 1000);
+    if (totalSec < 60) return totalSec + 's';
+    const m = Math.floor(totalSec / 60);
+    const s = totalSec % 60;
+    if (m < 60) return m + 'm ' + s + 's';
+    const h = Math.floor(m / 60);
+    return h + 'h ' + (m % 60) + 'm';
+}
+
+function colorClass(line) {
+    const upper = line.toUpperCase();
+    if (upper.includes('ERROR') || upper.includes('FATAL') || upper.includes('EXCEPTION')) return 'text-error';
+    if (upper.includes('WARN')) return 'text-warn';
+    if (line.startsWith('> ')) return 'text-command';
+    if (line.includes('joined the game') || line.includes('left the game')) return 'text-info';
+    return '';
+}
+
+function addLogLine(text, ts) {
+    const log = document.getElementById('console-log');
+    const d = document.createElement('div');
+    d.className = 'console-line';
+    const timeStr = new Date(ts || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    d.innerHTML = '<span class="ts">[' + timeStr + ']</span><span class="' + colorClass(text) + '">' + escHtml(text) + '</span>';
+    log.appendChild(d);
+    if (autoScroll) log.scrollTop = log.scrollHeight;
+}
+
+function addChatLine(username, message, ts) {
+    const chat = document.getElementById('chat-log');
+    const d = document.createElement('div');
+    d.className = 'chat-msg';
+    const timeStr = new Date(ts || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    d.innerHTML = '<span class="chat-ts">[' + timeStr + ']</span> <span class="chat-user">&lt;' + escHtml(username) + '&gt;</span> <span class="chat-text">' + escHtml(message) + '</span>';
+    chat.appendChild(d);
+    chat.scrollTop = chat.scrollHeight;
+}
+
+function escHtml(str) {
+    const d = document.createElement('div');
+    d.textContent = str;
+    return d.innerHTML;
+}
+
+function sendCommand() {
+    const input = document.getElementById('cmd-input');
+    const cmd = input.value.trim();
+    if (!cmd) return;
+    api.invoke('admin-send-command', { command: cmd });
+    input.value = '';
+}
+
+document.getElementById('cmd-input').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') sendCommand();
+});
+
+document.getElementById('console-log').addEventListener('scroll', () => {
+    const el = document.getElementById('console-log');
+    autoScroll = el.scrollTop + el.clientHeight >= el.scrollHeight - 20;
+});
+
+function clearConsole() {
+    document.getElementById('console-log').innerHTML = '';
+}
+
+function renderPlayers() {
+    const container = document.getElementById('players-content');
+    const entries = Object.entries(playerData);
+    if (!entries.length) {
+        container.innerHTML = '<div class="empty-state">Ningún jugador conectado</div>';
+        return;
+    }
+    let html = '<table><thead><tr><th>Jugador</th><th>Estado</th><th>Tiempo sesión</th><th>Tiempo total</th></tr></thead><tbody>';
+    for (const [name, session] of entries) {
+        const currentSession = session.online ? Date.now() - session.joinTime : 0;
+        const total = session.totalMs + currentSession;
+        html += '<tr>'
+            + '<td>' + escHtml(name) + '</td>'
+            + '<td><span class="status-badge ' + (session.online ? 'online' : 'offline') + '">' + (session.online ? 'Online' : 'Offline') + '</span></td>'
+            + '<td>' + (session.online ? formatDuration(currentSession) : '—') + '</td>'
+            + '<td>' + formatDuration(total) + '</td>'
+            + '</tr>';
+    }
+    html += '</tbody></table>';
+    container.innerHTML = html;
+}
+
+function renderStats() {
+    const container = document.getElementById('stats-content');
+    const uptimeMs = startTime ? Date.now() - startTime : 0;
+    const onlineCount = Object.values(playerData).filter(p => p.online).length;
+    const worldDays = Math.floor(uptimeMs / 86400000);
+    api.invoke('admin-get-player-stats').then(stats => {
+        const entries = Object.entries(stats || {});
+        const totalPlayers = entries.length;
+        container.innerHTML = ''
+            + '<div class="stats-grid">'
+            + '<div class="stat-card"><div class="stat-value">' + formatTime(uptimeMs) + '</div><div class="stat-label">Uptime</div></div>'
+            + '<div class="stat-card"><div class="stat-value">' + onlineCount + '/' + (window._maxPlayers || 0) + '</div><div class="stat-label">Jugadores</div></div>'
+            + '<div class="stat-card"><div class="stat-value">' + worldDays + '</div><div class="stat-label">Días activo</div></div>'
+            + '<div class="stat-card"><div class="stat-value">' + (window._chatCount || 0) + '</div><div class="stat-label">Mensajes</div></div>'
+            + '</div>'
+            + '<button class="stop-btn" onclick="stopServer()">Detener Servidor</button>';
+    });
+}
+
+function stopServer() {
+    if (confirm('Detener el servidor? Los jugadores serán desconectados.')) {
+        api.invoke('admin-close-server');
+    }
+}
+
+// Uptime counter
+setInterval(() => {
+    if (startTime) {
+        document.getElementById('uptime-display').textContent = formatTime(Date.now() - startTime);
+        const active = document.querySelector('.tabs button.active');
+        if (active && active.dataset.tab === 'tab-stats') renderStats();
+        if (active && active.dataset.tab === 'tab-players') renderPlayers();
+    }
+}, 1000);
+
+// Eventos del main process
+api.on('admin-log', (data) => addLogLine(data.text, data.ts));
+api.on('admin-chat', (data) => addChatLine(data.username, data.message, data.ts));
+api.on('admin-player-join', (data) => {
+    const prev = playerData[data.username];
+    playerData[data.username] = { joinTime: data.ts, totalMs: prev?.totalMs || 0, online: true };
+    addLogLine(data.username + ' joined the game', data.ts);
+    const active = document.querySelector('.tabs button.active');
+    if (active && active.dataset.tab === 'tab-players') renderPlayers();
+    if (active && active.dataset.tab === 'tab-stats') renderStats();
+});
+api.on('admin-player-leave', (data) => {
+    const session = playerData[data.username];
+    if (session) {
+        const sessionMs = data.ts - session.joinTime;
+        playerData[data.username] = { joinTime: null, totalMs: session.totalMs + sessionMs, online: false };
+    }
+    addLogLine(data.username + ' left the game', data.ts);
+    const active = document.querySelector('.tabs button.active');
+    if (active && active.dataset.tab === 'tab-players') renderPlayers();
+    if (active && active.dataset.tab === 'tab-stats') renderStats();
+});
+api.on('admin-server-ready', (data) => {
+    startTime = data.startTime;
+});
+
+// Inicializar estado
+document.addEventListener('DOMContentLoaded', async () => {
+    const state = await api.invoke('admin-get-initial-state');
+    if (state) {
+        startTime = state.startTime;
+        window._maxPlayers = state.maxPlayers || 0;
+        window._chatCount = state.chatCount || 0;
+        playerData = state.players || {};
+        for (const log of state.logs || []) addLogLine(log.text, log.ts);
+        renderPlayers();
+        renderStats();
+    }
+});
+</script>
+</body>
+</html>

@@ -138,7 +138,8 @@ class ModUpdater {
       );
       const manifestAsset = releaseData.assets.find(asset => asset.name === 'manifest.json');
       if (!manifestAsset) {
-        throw new Error('manifest.json not found in latest release');
+        console.warn('[ModUpdater] manifest.json not found in latest release — skipping update.');
+        return null;
       }
       const manifestData = await this.fetchJSON(manifestAsset.browser_download_url, {
         timeoutMs: 15000
@@ -155,6 +156,10 @@ class ModUpdater {
     try {
       console.log('[ModUpdater] Checking for updates...');
       const remoteManifest = await this.fetchLatestManifest();
+      if (!remoteManifest) {
+        console.log('[ModUpdater] No manifest available — update skipped.');
+        return { hasUpdate: false, skipped: true, reason: 'manifest.json not found in release' };
+      }
       const localManifest = await this.loadLocalManifest();
       const updates = {
         version: remoteManifest.version,
@@ -191,7 +196,7 @@ class ModUpdater {
       return { ...updates, hasUpdate: true };
     } catch (err) {
       console.error('[ModUpdater] Update check failed:', err.message);
-      throw err;
+      return { hasUpdate: false, error: err.message };
     }
   }
 
