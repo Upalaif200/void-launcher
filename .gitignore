@@ -28,3 +28,9 @@ void-mod/.gradle/
 void-mod/build/
 void-mod/.gradle/
 *.jar
+
+# Environment / secrets
+.env
+.env.local
+.env.*.local
+*.env

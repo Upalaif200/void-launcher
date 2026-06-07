@@ -15,6 +15,16 @@ const NotificationManager = require('./notification-manager');
 const P2PEngine = require('./p2p-engine');
 const P2PBridge = require('./p2p-bridge');
 
+// ── Environment ──
+try { require('dotenv').config(); } catch (_) { /* dotenv optional */ }
+
+const REQUIRED_ENV = ['DATABASE_URL'];
+const missing = REQUIRED_ENV.filter(key => !process.env[key]);
+if (missing.length > 0) {
+  console.error('[Security] Missing required environment variables:', missing.join(', '));
+  process.exit(1);
+}
+
 process.on('uncaughtException', (err) => {
   console.error('[CRASH] uncaughtException:', err);
 });
@@ -173,8 +183,8 @@ function setupTray(win) {
     } catch (e) { console.error('[TRAY] Error:', e); }
 }
 
-// ── Neon connection (hardcoded — users never see this) ──
-const NEON_DB_URL = 'postgresql://user:password@ep-nameless-cherry-acuxeh1m-pooler.sa-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require';
+// ── Neon connection — from environment ──
+const NEON_DB_URL = process.env.DATABASE_URL;
 
 // Session persistence
 function getSessionPath() {
