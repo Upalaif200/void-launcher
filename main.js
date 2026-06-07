@@ -19,7 +19,13 @@ const { sanitizeString, sanitizeBoolean, sanitizeId, sanitizePath, sanitizePaylo
 const { verifyAppIntegrity, verifyAppOrigin } = require('./src/integrity');
 
 // ── Environment ──
+// Try multiple locations for .env: cwd, app directory, and userData (for packaged apps)
 try { require('dotenv').config(); } catch (_) { /* dotenv optional */ }
+try { require('dotenv').config({ path: path.join(__dirname, '.env') }); } catch (_) {}
+try {
+    const ud = app.getPath('userData');
+    require('dotenv').config({ path: path.join(ud, '.env') });
+} catch (_) {}
 
 const REQUIRED_ENV = ['DATABASE_URL'];
 const missing = REQUIRED_ENV.filter(key => !process.env[key]);
