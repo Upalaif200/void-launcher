@@ -11,6 +11,15 @@ try { skinview3d = require('skinview3d'); } catch (e) { console.warn('[RENDERER]
 const os = require('os');
 
 // ─────────────────────────────────────────────
+// GARBAGE COLLECTION HELPER
+// ─────────────────────────────────────────────
+function requestGC() {
+    if (typeof globalThis.gc === 'function') {
+        globalThis.gc();
+    }
+}
+
+// ─────────────────────────────────────────────
 // ESTADO GLOBAL
 // ─────────────────────────────────────────────
 const icon = name => `<svg class="icon"><use href="#icon-${name}"/></svg>`;
@@ -250,10 +259,12 @@ function showUpdateProgress(percent, bytesPerSecond) {
     updateProgressText.textContent = `Descargando... ${percent}%${speed}`;
 }
 
+ipcRenderer.removeAllListeners('update-available');
 ipcRenderer.on('update-available', (_, info) => {
     showUpdateNotification(info.version);
 });
 
+ipcRenderer.removeAllListeners('update-progress');
 ipcRenderer.on('update-progress', (_, prog) => {
     showUpdateProgress(Math.round(prog.percent), prog.bytesPerSecond);
 });
@@ -290,6 +301,7 @@ function showModUpdateStatus(status) {
     }, 3000);
 }
 
+ipcRenderer.removeAllListeners('update-downloaded');
 ipcRenderer.on('update-downloaded', () => {
     updateProgressFill.style.width = '100%';
     updateProgressText.textContent = 'Descarga completada. Instalando...';
@@ -298,14 +310,17 @@ ipcRenderer.on('update-downloaded', () => {
     }, 500);
 });
 
+ipcRenderer.removeAllListeners('mod-update-progress');
 ipcRenderer.on('mod-update-progress', (_, progress) => {
     showModUpdateProgress(progress);
 });
 
+ipcRenderer.removeAllListeners('mod-update-status');
 ipcRenderer.on('mod-update-status', (_, status) => {
     showModUpdateStatus(status);
 });
 
+ipcRenderer.removeAllListeners('update-not-available');
 ipcRenderer.on('update-not-available', () => {
     localStorage.removeItem(UPDATE_PENDING_KEY);
 });
@@ -357,9 +372,78 @@ function reloadSkin() {
 reloadSkin();
 
 // ─────────────────────────────────────────────
+// HEAVY VIEWS — PAUSE / RESUME
+// ─────────────────────────────────────────────
+const HEAVY_VIEWS = ['view-social', 'view-mods', 'view-wardrobe'];
+
+function pauseViewProcesses(viewId) {
+    switch (viewId) {
+        case 'view-social':
+            stopFriendPresencePolling();
+            break;
+        case 'view-wardrobe':
+            if (skinEditorActive) closeSkinEditor();
+            if (skinViewer) {
+                skinViewer.animation = null;
+                skinViewer.dispose();
+                skinViewer = null;
+            }
+            break;
+    }
+}
+
+function resumeViewProcesses(viewId) {
+    switch (viewId) {
+        case 'view-social':
+            if (socialState.connected) startFriendPresencePolling();
+            break;
+        case 'view-wardrobe':
+            if (!skinViewer) {
+                try {
+                    skinViewer = new skinview3d.SkinViewer({
+                        canvas: document.createElement('canvas'),
+                        width: 220, height: 340,
+                        skin: 'https://mineskin.org/textures/8/a/8a39f041217642ac9719e7f256247f1f.png'
+                    });
+                    skinContainer.appendChild(skinViewer.canvas);
+                    skinViewer.animation = new skinview3d.IdleAnimation();
+                    skinViewer.controls.enableZoom = false;
+                } catch (e) {
+                    console.warn('[SKIN] Visor 3D no disponible al reanudar:', e.message);
+                }
+            }
+            reloadSkin();
+            break;
+    }
+}
+
+function clearHeavyDOM(viewId) {
+    const heavyContainers = {
+        'view-mods':       '#modpack-results-grid',
+        'view-wardrobe':   '#wardrobe-grid',
+        'view-social':     '#chat-area-messages'
+    };
+    const selector = heavyContainers[viewId];
+    if (!selector) return;
+    const el = document.querySelector(selector);
+    if (el && el.children.length > 200) {
+        while (el.children.length > 50) el.removeChild(el.firstChild);
+        requestGC();
+    }
+}
+
+// ─────────────────────────────────────────────
 // ROUTER DE VISTAS
 // ─────────────────────────────────────────────
 function navigate(viewId) {
+    // Pausar procesos de la vista anterior
+    const currentView = document.querySelector('.view.active');
+    if (currentView && HEAVY_VIEWS.includes(currentView.id)) {
+        pauseViewProcesses(currentView.id);
+    }
+    if (currentView) clearHeavyDOM(currentView.id);
+
+    // Cambiar vista
     document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
     document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
     const view = document.getElementById(viewId);
@@ -367,12 +451,27 @@ function navigate(viewId) {
     const navBtn = document.querySelector(`.nav-btn[data-view="${viewId}"]`);
     if (navBtn) navBtn.classList.add('active');
 
+    // Reanudar procesos de la nueva vista
+    if (HEAVY_VIEWS.includes(viewId)) {
+        resumeViewProcesses(viewId);
+    }
+
     // Acciones al entrar en cada vista
     if (viewId === 'view-main') refreshMainView();
     if (viewId === 'view-accounts') renderNicknamesList();
     if (viewId === 'view-profiles') { renderProfilesList(); closeEditPanel(); }
     if (viewId === 'view-mods') refreshModsView();
     if (viewId === 'view-install') initInstallView();
+    if (viewId === 'view-client') { refreshClientModules(); loadCosmeticsState(); }
+    if (viewId === 'view-settings') {
+        loadTheme();
+        renderTypoSettings();
+        renderColorSettings();
+        loadBehaviorSettings();
+    }
+    if (viewId === 'view-wardrobe') {
+        if (!skinEditorActive) renderWardrobe();
+    }
     if (viewId === 'view-social') {
         cloudRenderFriendsList();
         cloudRenderPendingList();
@@ -506,6 +605,7 @@ playBtn.addEventListener('click', () => {
     ipcRenderer.send('launch-game', { profileId: prof.id });
 });
 
+ipcRenderer.removeAllListeners('launch-status');
 ipcRenderer.on('launch-status', (_, { type, data, instances }) => {
     if (type === 'progress') {
         const pct = data.total ? Math.round((data.task / data.total) * 100) : 0;
@@ -1156,6 +1256,7 @@ document.getElementById('do-install-btn').addEventListener('click', async () => 
     }
 });
 
+ipcRenderer.removeAllListeners('install-progress');
 ipcRenderer.on('install-progress', (_, { msg, percent }) => {
     installStatusText.textContent = msg;
     installProgressFill.style.width = `${percent}%`;
@@ -1308,15 +1409,7 @@ setupTweak('tweak-gui-scale', 'guiScale', el => parseInt(el.value));
 setupTweak('tweak-render-distance', 'renderDistance', el => parseInt(el.value));
 setupTweak('tweak-max-fps', 'maxFps', el => parseInt(el.value));
 
-// Navigate to client view - refresh modules + cosmetics on enter
-const origNavigate = navigate;
-navigate = function(viewId) {
-    origNavigate(viewId);
-    if (viewId === 'view-client') {
-        refreshClientModules();
-        loadCosmeticsState();
-    }
-};
+// (navigate consolidado en ROUTER DE VISTAS — ver arriba)
 
 // ─────────────────────────────────────────────
 // THEME / SETTINGS ENGINE
@@ -1659,18 +1752,6 @@ function initSettings() {
     applyTheme();
 }
 
-// ── Init settings, load social config ──
-const origNavigate2 = navigate;
-navigate = function(viewId) {
-    origNavigate2(viewId);
-    if (viewId === 'view-settings') {
-        loadTheme();
-        renderTypoSettings();
-        renderColorSettings();
-        loadBehaviorSettings();
-    }
-};
-
 initSettings();
 
 // ─────────────────────────────────────────────
@@ -1712,6 +1793,7 @@ function renderWardrobe() {
             }
         }
     });
+    requestGC();
 }
 
 document.getElementById('wardrobe-add-btn')?.addEventListener('click', async () => {
@@ -2122,6 +2204,7 @@ process.on('unhandledRejection', (reason) => {
 });
 
 // ── Cloud IPC listeners ──
+ipcRenderer.removeAllListeners('social-update');
 ipcRenderer.on('social-update', (_, data) => {
     socialState.friends = data.friends || [];
     socialState.presence = data.presence || {};
@@ -2157,6 +2240,7 @@ ipcRenderer.on('social-update', (_, data) => {
     }
 });
 
+ipcRenderer.removeAllListeners('social-error');
 ipcRenderer.on('social-error', () => {
     const status = document.getElementById('social-connection-status');
     if (status) {
@@ -2167,6 +2251,7 @@ ipcRenderer.on('social-error', () => {
     updateSocialConnectionStatus();
 });
 
+ipcRenderer.removeAllListeners('overlay-open-chat');
 ipcRenderer.on('overlay-open-chat', (_, username) => {
     if (typeof username !== 'string') return;
     document.querySelector('[data-panel="social"]')?.click();
@@ -2174,6 +2259,7 @@ ipcRenderer.on('overlay-open-chat', (_, username) => {
 });
 
 // ── P2P Status ──
+ipcRenderer.removeAllListeners('p2p-status');
 ipcRenderer.on('p2p-status', (_, data) => {
     const stages = {
         SIGNALING: 'Conectando... intercambiando señales',
@@ -2194,6 +2280,7 @@ ipcRenderer.on('p2p-status', (_, data) => {
     }
 });
 
+ipcRenderer.removeAllListeners('p2p-auto-join');
 ipcRenderer.on('p2p-auto-join', (_, data) => {
     ipcRenderer.invoke('p2p-join-session', data).catch(e => {
         console.error('[P2P] auto-join error:', e);
@@ -2203,7 +2290,15 @@ ipcRenderer.on('p2p-auto-join', (_, data) => {
 
 // ── Friend presence polling (System B) ──
 const friendPresenceCache = {};
+const FRIEND_CACHE_MAX = 200;
 let presencePollInterval = null;
+
+function stopFriendPresencePolling() {
+    if (presencePollInterval) {
+        clearInterval(presencePollInterval);
+        presencePollInterval = null;
+    }
+}
 
 function startFriendPresencePolling() {
     if (presencePollInterval) return;
@@ -2233,9 +2328,16 @@ function startFriendPresencePolling() {
             }
             friendPresenceCache[row.username] = row.status;
         }
+        // Trim cache to prevent unbounded growth
+        const cacheKeys = Object.keys(friendPresenceCache);
+        if (cacheKeys.length > FRIEND_CACHE_MAX) {
+            const toDelete = cacheKeys.slice(0, cacheKeys.length - FRIEND_CACHE_MAX);
+            for (const key of toDelete) delete friendPresenceCache[key];
+        }
     }, 15000);
 }
 
+ipcRenderer.removeAllListeners('minecraft-state-change');
 ipcRenderer.on('minecraft-state-change', (_, { userId, status, ip, version }) => {
     const statusEl = document.getElementById('social-my-status');
     if (statusEl) {
@@ -2254,6 +2356,7 @@ ipcRenderer.on('minecraft-state-change', (_, { userId, status, ip, version }) =>
     }
 });
 
+ipcRenderer.removeAllListeners('social-connected');
 ipcRenderer.on('social-connected', () => {
     socialState.connected = true;
     updateSocialConnectionStatus();
@@ -2285,6 +2388,7 @@ window.retrySocialConnection = function() {
     document.getElementById('social-connection-status').innerHTML = '<span style="color:#f59e0b;">🟡 Reconectando...</span>';
 };
 
+ipcRenderer.removeAllListeners('session-restored');
 ipcRenderer.on('session-restored', (_, { username }) => {
     neonSession = { username, userId: null };
     cfg = ipcRenderer.sendSync('get-config');
@@ -2553,31 +2657,17 @@ window.closeSkinEditor = function() {
     skinEditorActive = false;
     if (skinEditorInstance) { skinEditorInstance.destroy(); skinEditorInstance = null; }
     const editorEl = document.getElementById('skin-editor-root');
-    if (editorEl) editorEl.style.display = 'none';
+    if (editorEl) editorEl.remove();
     const container = document.getElementById('wardrobe-grid');
     const actions = document.querySelector('.wardrobe-actions');
     if (container) container.style.display = 'grid';
     if (actions) actions.style.display = 'flex';
     renderWardrobe();
+    requestGC();
 };
 
 window.editorUndo = () => { if (skinEditorInstance) skinEditorInstance.undo(); };
 window.editorRedo = () => { if (skinEditorInstance) skinEditorInstance.redo(); };
-
-// ─────────────────────────────────────────────
-// OVERRIDE NAVIGATE FOR NEW VIEWS
-// ─────────────────────────────────────────────
-const origNavigate3 = navigate;
-navigate = function(viewId) {
-    origNavigate3(viewId);
-    if (viewId === 'view-wardrobe') {
-        if (!skinEditorActive) { renderWardrobe(); }
-    }
-    if (viewId === 'view-social') {
-        cloudRenderFriendsList();
-        cloudRenderPendingList();
-    }
-};
 
 // Initialize unread badge on load
 const initialUnread = Object.values(socialState.unreadCounts || {}).reduce((a, b) => a + b, 0);

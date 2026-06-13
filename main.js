@@ -118,6 +118,7 @@ let mainWindow = null;
 let socialDb = null;
 let socialManager = null;
 let socialPollInterval = null;
+let guestCleanupInterval = null;
 let notificationManager = null;
 global.activeInstancesCount = 0;
 const activeProcesses = new Map(); // userId → { proc, state, version, presenceInterval }
@@ -138,10 +139,33 @@ function createWindow() {
             webviewTag: true,
             webSecurity: true,
             allowRunningInsecureContent: false,
+            backgroundThrottling: true,
         },
         backgroundColor: '#0a0a0a'
     });
     win.loadFile('index.html');
+
+    // Throttle non-critical intervals when window is hidden/minimized
+    win.on('hide', () => {
+        socialManager?.pausePolling();
+        if (socialPollInterval) {
+            clearInterval(socialPollInterval);
+            socialPollInterval = setInterval(() => {
+                if (socialManager && socialManager.isLoggedIn()) broadcastSocialState();
+            }, 30000);
+        }
+    });
+
+    win.on('show', () => {
+        socialManager?.resumePolling();
+        if (socialPollInterval) {
+            clearInterval(socialPollInterval);
+            socialPollInterval = setInterval(() => {
+                if (socialManager && socialManager.isLoggedIn()) broadcastSocialState();
+            }, 2000);
+        }
+    });
+
     return win;
 }
 
@@ -207,7 +231,7 @@ function startSocialManager(connectionString) {
             if (rows.length > 0) console.log('[SOCIAL] Expired guests cleaned:', rows.length);
         }).catch(e => console.error('[SOCIAL] Guest cleanup error:', e));
         // Periodic guest cleanup every hour
-        setInterval(() => {
+        guestCleanupInterval = setInterval(() => {
             socialDb.deleteExpiredGuests().catch(() => {});
         }, 3600000);
 
@@ -240,6 +264,7 @@ function startSocialManager(connectionString) {
 function stopSocialManager() {
     if (socialManager) { socialManager.stop(); socialManager = null; }
     if (socialPollInterval) { clearInterval(socialPollInterval); socialPollInterval = null; }
+    if (guestCleanupInterval) { clearInterval(guestCleanupInterval); guestCleanupInterval = null; }
     if (socialDb) { socialDb.close(); socialDb = null; }
 }
 
@@ -333,9 +358,9 @@ function broadcastSocialState() {
 function startSocialPolling(manager) {
     if (socialPollInterval) clearInterval(socialPollInterval);
     socialPollInterval = setInterval(() => {
-        if (manager && manager.isLoggedIn()) {
-            broadcastSocialState();
-        }
+        if (!manager || !manager.isLoggedIn()) return;
+        if (!mainWindow?.isFocused()) return;
+        broadcastSocialState();
     }, 2000);
 }
 

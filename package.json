@@ -84,7 +84,7 @@
     "postinstall": "node scripts/generate-icon.js",
     "generate-manifest": "node scripts/generate-manifest.js",
     "build": "electron-builder --win --publish never",
-    "start": "electron .",
+    "start": "electron --expose-gc .",
     "publish": "electron-builder --win --publish always"
   },
   "name": "void-launcher",
@@ -96,5 +96,5 @@
     "sharp": "^0.34.5"
   },
   "repository": "Upalaif200/void-launcher",
-  "version": "1.4.3"
+  "version": "1.5.0"
 }

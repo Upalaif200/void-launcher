@@ -58,6 +58,32 @@ class SocialManager {
         this.activeUserId = null;
     }
 
+    pausePolling() {
+        if (this.pollInterval) {
+            clearInterval(this.pollInterval);
+            this.pollInterval = null;
+        }
+    }
+
+    resumePolling() {
+        if (!this.pollInterval && this.activeUserId) {
+            this.startPolling(this.onEvent);
+        }
+    }
+
+    pauseHeartbeat() {
+        if (this.heartbeatInterval) {
+            clearInterval(this.heartbeatInterval);
+            this.heartbeatInterval = null;
+        }
+    }
+
+    resumeHeartbeat() {
+        if (!this.heartbeatInterval && this.activeSession) {
+            this.startHeartbeat();
+        }
+    }
+
     hashPassword(password) {
         return crypto.createHash('sha256').update(password).digest('hex');
     }
