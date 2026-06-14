@@ -92,9 +92,10 @@
   "devDependencies": {
     "electron": "^40.6.1",
     "electron-builder": "^26.8.1",
+    "eslint": "^10.5.0",
     "png-to-ico": "^3.0.1",
     "sharp": "^0.34.5"
   },
   "repository": "Upalaif200/void-launcher",
-  "version": "1.5.0"
+  "version": "1.5.1"
 }

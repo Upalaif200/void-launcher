@@ -418,7 +418,7 @@ class SocialDB {
         }
         try {
             await this.query(`CREATE TABLE IF NOT EXISTS user_presence (
-                user_id  INTEGER PRIMARY KEY,
+                user_id  VARCHAR(255) PRIMARY KEY,
                 status   TEXT NOT NULL DEFAULT 'OFFLINE',
                 server_ip  TEXT,
                 version    TEXT,
@@ -427,6 +427,12 @@ class SocialDB {
             console.log('[SOCIAL] Schema migrated: user_presence table created');
         } catch (e) {
             console.warn('[SOCIAL] user_presence migration (non-fatal):', e.message);
+        }
+        try {
+            await this.query(`ALTER TABLE user_presence ALTER COLUMN user_id TYPE VARCHAR(255)`);
+            console.log('[SOCIAL] Schema migrated: user_presence.user_id -> VARCHAR');
+        } catch (e) {
+            console.warn('[SOCIAL] user_presence.user_id migration (non-fatal):', e.message);
         }
         try {
             await this.query(`CREATE TABLE IF NOT EXISTS game_invitations (

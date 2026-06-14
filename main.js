@@ -118,7 +118,6 @@ let mainWindow = null;
 let socialDb = null;
 let socialManager = null;
 let socialPollInterval = null;
-let guestCleanupInterval = null;
 let notificationManager = null;
 global.activeInstancesCount = 0;
 const activeProcesses = new Map(); // userId → { proc, state, version, presenceInterval }
@@ -139,33 +138,10 @@ function createWindow() {
             webviewTag: true,
             webSecurity: true,
             allowRunningInsecureContent: false,
-            backgroundThrottling: true,
         },
         backgroundColor: '#0a0a0a'
     });
     win.loadFile('index.html');
-
-    // Throttle non-critical intervals when window is hidden/minimized
-    win.on('hide', () => {
-        socialManager?.pausePolling();
-        if (socialPollInterval) {
-            clearInterval(socialPollInterval);
-            socialPollInterval = setInterval(() => {
-                if (socialManager && socialManager.isLoggedIn()) broadcastSocialState();
-            }, 30000);
-        }
-    });
-
-    win.on('show', () => {
-        socialManager?.resumePolling();
-        if (socialPollInterval) {
-            clearInterval(socialPollInterval);
-            socialPollInterval = setInterval(() => {
-                if (socialManager && socialManager.isLoggedIn()) broadcastSocialState();
-            }, 2000);
-        }
-    });
-
     return win;
 }
 
@@ -231,7 +207,7 @@ function startSocialManager(connectionString) {
             if (rows.length > 0) console.log('[SOCIAL] Expired guests cleaned:', rows.length);
         }).catch(e => console.error('[SOCIAL] Guest cleanup error:', e));
         // Periodic guest cleanup every hour
-        guestCleanupInterval = setInterval(() => {
+        setInterval(() => {
             socialDb.deleteExpiredGuests().catch(() => {});
         }, 3600000);
 
@@ -264,7 +240,6 @@ function startSocialManager(connectionString) {
 function stopSocialManager() {
     if (socialManager) { socialManager.stop(); socialManager = null; }
     if (socialPollInterval) { clearInterval(socialPollInterval); socialPollInterval = null; }
-    if (guestCleanupInterval) { clearInterval(guestCleanupInterval); guestCleanupInterval = null; }
     if (socialDb) { socialDb.close(); socialDb = null; }
 }
 
@@ -285,7 +260,7 @@ function broadcastSocialState() {
                     const res = await socialDb.query(
                         `SELECT up.user_id, up.status AS game_status, up.server_ip, up.version
                          FROM user_presence up
-                         WHERE up.user_id = ANY($1::int[])`,
+                         WHERE up.user_id = ANY($1::text[])`,
                         [friendIds]
                     );
                     presenceRows = res.rows;
@@ -358,9 +333,9 @@ function broadcastSocialState() {
 function startSocialPolling(manager) {
     if (socialPollInterval) clearInterval(socialPollInterval);
     socialPollInterval = setInterval(() => {
-        if (!manager || !manager.isLoggedIn()) return;
-        if (!mainWindow?.isFocused()) return;
-        broadcastSocialState();
+        if (manager && manager.isLoggedIn()) {
+            broadcastSocialState();
+        }
     }, 2000);
 }
 
@@ -369,7 +344,7 @@ async function updatePresence(userId, status, serverIp, version) {
     if (!socialDb || !socialDb.connected) return;
     try {
         await socialDb.query(`CREATE TABLE IF NOT EXISTS user_presence (
-            user_id   INTEGER PRIMARY KEY,
+            user_id   VARCHAR(255) PRIMARY KEY,
             status    TEXT NOT NULL DEFAULT 'OFFLINE',
             server_ip TEXT,
             version   TEXT,
@@ -560,7 +535,7 @@ ipcMain.handle('get-friends-presence', async (_, { friendIds }) => {
         const res = await socialDb.query(
             `SELECT up.*, u.username FROM user_presence up
              JOIN users u ON u.id = up.user_id
-             WHERE up.user_id = ANY($1::int[])`,
+             WHERE up.user_id = ANY($1::text[])`,
             [friendIds]
         );
         return res.rows;
@@ -1529,7 +1504,7 @@ ipcMain.handle('get-social-state', async () => {
                 const res = await socialDb.query(
                     `SELECT up.user_id, up.status AS game_status, up.server_ip, up.version
                      FROM user_presence up
-                     WHERE up.user_id = ANY($1::int[])`,
+                     WHERE up.user_id = ANY($1::text[])`,
                     [friendIds]
                 );
                 presenceRows = res.rows;
@@ -2017,6 +1992,19 @@ function findBestJava() {
         if (r && fs.existsSync(r) && !checked.has(r)) candidates.push(r);
     } catch (e) { /* ignore */ }
 
+    // Buscar Java descargado en cache del launcher (AppData)
+    if (fs.existsSync(JAVA_CACHE_DIR)) {
+        const cachedDirs = fs.readdirSync(JAVA_CACHE_DIR).filter(d => d.startsWith('jre-'));
+        for (const dir of cachedDirs) {
+            const p = path.join(JAVA_CACHE_DIR, dir, 'bin', 'java.exe');
+            if (fs.existsSync(p) && !checked.has(p)) {
+                candidates.push(p);
+                checked.add(p);
+                console.log('[JAVA] Encontrado en cache:', p);
+            }
+        }
+    }
+
     let bestPath = 'java', bestVersion = 0;
     for (const p of candidates) {
         const v = getJavaVersion(p);
@@ -2074,6 +2062,13 @@ async function downloadJava(majorVersion) {
 }
 
 async function ensureJava(minMajorVersion = 25) {
+    // 1. Verificar cache del launcher primero
+    const cachedJavaPath = path.join(JAVA_CACHE_DIR, `jre-${minMajorVersion}`, 'bin', 'java.exe');
+    if (fs.existsSync(cachedJavaPath)) {
+        console.log('[JAVA] Encontrado en cache:', cachedJavaPath);
+        return cachedJavaPath;
+    }
+
     const best = findBestJava();
     if (best.version >= minMajorVersion) return best.path;
 
@@ -2123,15 +2118,42 @@ ipcMain.on('launch-game', async (event, { profileId }) => {
         const cleanUsername = username.replace(/\s+/g, '_');
         const auth = await Authenticator.getAuth(cleanUsername);
 
-        // Parsear JVM args del perfil
-        const profileJvmArgs = profile.jvmArgs
-            ? profile.jvmArgs.split(/\s+/).filter(Boolean)
-            : [];
+        const ramMb = Math.min(parseInt(ram, 10) * 1024, 3072);
 
-        const baseArgs = [
-            '-XX:+UseG1GC', '-XX:+ParallelRefProcEnabled',
-            '-XX:MaxGCPauseMillis=150', '-XX:+UnlockExperimentalVMOptions',
-            '-XX:+UseStringDeduplication', '-XX:+DisableExplicitGC'
+        // ── Voxy: limitar geometry buffer a 512MB ──
+        try {
+            const voxyConfigDir = path.join(userDataPath, 'config', 'voxy');
+            const voxyConfigPath = path.join(voxyConfigDir, 'voxy-client.json');
+            fs.mkdirSync(voxyConfigDir, { recursive: true });
+            let voxyConfig = {};
+            if (fs.existsSync(voxyConfigPath)) {
+                try { voxyConfig = JSON.parse(fs.readFileSync(voxyConfigPath, 'utf8')); } catch (_) {}
+            }
+            voxyConfig.geometryBufferSizeMb = 512;
+            voxyConfig.maxGeometryBufferSizeMb = 512;
+            voxyConfig.lodChunkBuilderThreads = 1;
+            voxyConfig.maxLodsPerFrame = 5;
+            fs.writeFileSync(voxyConfigPath, JSON.stringify(voxyConfig, null, 2), 'utf8');
+            console.log('[VOXY] Config applied:', voxyConfigPath);
+        } catch (e) {
+            console.warn('[VOXY] Config error (non-fatal):', e.message);
+        }
+
+        const jvmArgs = [
+            '-XX:-UseAdaptiveSizePolicy',
+            '-XX:-OmitStackTraceInFastThrow',
+            '-Dfml.ignorePatchDiscrepancies=true',
+            '-Dfml.ignoreInvalidMinecraftCertificates=true',
+            '-Xms512M',
+            `-Xmx${ramMb}M`,
+            '-XX:+UnlockExperimentalVMOptions',
+            '-XX:+UseZGC',
+            '-XX:+UseStringDeduplication',
+            '-XX:MaxGCPauseMillis=15',
+            '-Djava.net.preferIPv4Stack=true',
+            '-Dvoxy.geometryBufferSizeMb=512',
+            '-Dvoxy.maxGeometryBufferSizeMb=512',
+            '--enable-native-access=ALL-UNNAMED'
         ];
 
         const injectorPath = path.join(__dirname, 'authlib-injector.jar');
@@ -2145,45 +2167,26 @@ ipcMain.on('launch-game', async (event, { profileId }) => {
             gameDirectory: gameDir,
             javaPath,
             version: { number: version, type: 'release' },
-            memory: { max: `${ram}G`, min: `${ram}G` },
-            customArgs: [...baseArgs, ...profileJvmArgs, ...agentArgs]
+            customArgs: [...jvmArgs, ...agentArgs]
         };
 
-        // ── Aplicar cosméticos ──
-        const cosmetics = cfg.cosmetics || { keystrokes: false, dynamicFov: true, damageTilt: true };
-
-        // Dynamic FOV / Damage Tilt → options.txt
-        const optPath = path.join(gameDir, 'options.txt');
-        let optionsTxt = '';
-        if (fs.existsSync(optPath)) {
-            optionsTxt = fs.readFileSync(optPath, 'utf8');
-        }
-        const setOpt = (key, value) => {
-            const re = new RegExp(`^${key}:[^\r\n]*`, 'm');
-            const line = `${key}:${value}`;
-            if (re.test(optionsTxt)) {
-                optionsTxt = optionsTxt.replace(re, line);
-            } else {
-                optionsTxt += (optionsTxt ? '\r\n' : '') + line;
-            }
-        };
-        if (!cosmetics.dynamicFov) setOpt('fovEffectScale', '0.0');
-        if (!cosmetics.damageTilt) setOpt('damageTiltStrength', '0.0');
-        fs.writeFileSync(optPath, optionsTxt, 'utf8');
-
-        // Keystrokes mod (solo Fabric)
-        if (cosmetics.keystrokes && version.includes('fabric')) {
-            const modsDir = path.join(gameDir, 'mods');
-            fs.mkdirSync(modsDir, { recursive: true });
-            const keystrokesJar = app.isPackaged
-                ? path.join(process.resourcesPath, 'mods', 'keystrokes-1.0.0.jar')
-                : path.join(__dirname, 'void-mod', 'build', 'libs', 'keystrokes-1.0.0.jar');
-            if (fs.existsSync(keystrokesJar)) {
-                const dest = path.join(modsDir, 'keystrokes-1.0.0.jar');
-                fs.copyFileSync(keystrokesJar, dest);
-                console.log('[COSMETICS] Keystrokes mod instalado');
-            } else {
-                console.log('[COSMETICS] keystrokes.jar no encontrado, saltando');
+        // ── Copiar mod del cliente al directorio del juego ──
+        if (version.includes('fabric')) {
+            try {
+                const modsDir = path.join(gameDir, 'mods');
+                fs.mkdirSync(modsDir, { recursive: true });
+                const keystrokesJar = app.isPackaged
+                    ? path.join(process.resourcesPath, 'mods', 'keystrokes-1.0.0.jar')
+                    : path.join(__dirname, 'void-mod', 'build', 'libs', 'keystrokes-1.0.0.jar');
+                if (fs.existsSync(keystrokesJar)) {
+                    const dest = path.join(modsDir, 'keystrokes-1.0.0.jar');
+                    fs.copyFileSync(keystrokesJar, dest);
+                    console.log('[LAUNCH] Mod del cliente copiado');
+                } else {
+                    console.warn('[LAUNCH] JAR del mod no encontrado en', keystrokesJar);
+                }
+            } catch (e) {
+                console.warn('[LAUNCH] Error copiando mod:', e.message);
             }
         }
 
@@ -2899,7 +2902,7 @@ async function ensureFabricInstalled(mcVersion, loaderVersion, onProgress) {
     return fabricId;
 }
 
-// [VOID-CLIENT ADDITION] IPC handlers for Client tab
+// [VOID-CLIENT ADDITION] Obtiene directorio del perfil activo
 function getActiveGameDir() {
     const cfg = loadConfig();
     const profile = cfg.profiles.find(p => p.id === cfg.activeProfileId) || cfg.profiles[0];
@@ -2910,66 +2913,6 @@ function getActiveGameDir() {
     }
     return gameDir;
 }
-
-ipcMain.on('get-hud-config', (e) => {
-    const gameDir = getActiveGameDir();
-    if (!gameDir) { e.returnValue = { modules: {} }; return; }
-    const configDir = path.join(gameDir, 'config');
-    const hudCfgPath = path.join(configDir, 'void-client.json');
-    if (fs.existsSync(hudCfgPath)) {
-        try {
-            e.returnValue = JSON.parse(fs.readFileSync(hudCfgPath, 'utf8'));
-        } catch { e.returnValue = { modules: {} }; }
-    } else {
-        e.returnValue = { modules: {} };
-    }
-});
-
-ipcMain.on('save-hud-config', (_, data) => {
-    if (!data || typeof data !== 'object') return;
-    const gameDir = getActiveGameDir();
-    if (!gameDir) return;
-    const configDir = path.join(gameDir, 'config');
-    fs.mkdirSync(configDir, { recursive: true });
-    const hudCfgPath = path.join(configDir, 'void-client.json');
-    let existing = { modules: {} };
-    if (fs.existsSync(hudCfgPath)) {
-        try { existing = JSON.parse(fs.readFileSync(hudCfgPath, 'utf8')); } catch {}
-    }
-    if (data.modules) {
-        for (const [name, modData] of Object.entries(data.modules)) {
-            if (!existing.modules[name]) existing.modules[name] = {};
-            if (modData.visible !== undefined) existing.modules[name].visible = modData.visible;
-        }
-    }
-    fs.writeFileSync(hudCfgPath, JSON.stringify(existing, null, 2));
-});
-
-ipcMain.on('write-options', (_, { key, value }) => {
-    key = sanitizeString(key, 100);
-    const gameDir = getActiveGameDir();
-    if (!gameDir) return;
-    const optPath = path.join(gameDir, 'options.txt');
-    let optionsTxt = '';
-    if (fs.existsSync(optPath)) {
-        optionsTxt = fs.readFileSync(optPath, 'utf8');
-    }
-    const valStr = String(value);
-    const re = new RegExp(`^${key}:[^\r\n]*`, 'm');
-    const line = `${key}:${valStr}`;
-    if (re.test(optionsTxt)) {
-        optionsTxt = optionsTxt.replace(re, line);
-    } else {
-        optionsTxt += (optionsTxt ? '\r\n' : '') + line;
-    }
-    fs.writeFileSync(optPath, optionsTxt, 'utf8');
-});
-
-ipcMain.on('launch-module-editor', () => {
-    const gameDir = getActiveGameDir();
-    if (!gameDir) return;
-    console.log('[VOID-CLIENT] Module editor requested for', gameDir);
-});
 
 // ─────────────────────────────────────────────
 // P2P — PEER-TO-PEER MULTIPLAYER
